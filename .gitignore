@@ -1,0 +1,9 @@
+application.properties
+target
+*.iml
+logs
+.idea
+dist/application.properties
+dist/*.jar
+dist/logs
+deploy.sh
