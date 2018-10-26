@@ -15,6 +15,8 @@ import java.net.URL
 import java.util.regex.Pattern
 import kotlin.streams.toList
 
+class TweetInfo(val bearerToken: String, val tweetId: String)
+
 class TwitterHelper(private val tempDir: File, private val ffmpegPath: File, private val ffprobePath: File) {
     private val log = LoggerFactory.getLogger(javaClass)
 

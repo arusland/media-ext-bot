@@ -72,7 +72,6 @@ class BotConfig protected constructor(prop: Properties, private val configFile: 
     }
 
     companion object {
-
         fun load(fileName: String): BotConfig {
             val prop = Properties()
             var file: File? = null

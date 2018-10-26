@@ -40,15 +40,10 @@ object MainApp {
         } catch (e: TelegramApiException) {
             e.printStackTrace()
         }
-
     }
 
     private class ProxyAuth(socksUsername: String, socksPassword: String) : Authenticator() {
-        private val auth: PasswordAuthentication
-
-        init {
-            auth = PasswordAuthentication(socksUsername, socksPassword.toCharArray())
-        }
+        private val auth: PasswordAuthentication = PasswordAuthentication(socksUsername, socksPassword.toCharArray())
 
         override fun getPasswordAuthentication(): PasswordAuthentication {
             return auth

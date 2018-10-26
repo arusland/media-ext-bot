@@ -218,7 +218,7 @@ constructor(config: BotConfig) : TelegramLongPollingBot() {
     }
 
     companion object {
-        private val UNKNOWN_COMMAND = "⚠️Unknown command⚠"
-        private val TEXT_MESSAGE_MAX_LENGTH = 4096
+        private const val UNKNOWN_COMMAND = "⚠️Unknown command⚠"
+        private const val TEXT_MESSAGE_MAX_LENGTH = 4096
     }
 }
