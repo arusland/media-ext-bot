@@ -25,11 +25,10 @@ class MediaExtTelegramBot @Throws(TelegramApiException::class)
 constructor(config: BotConfig) : TelegramLongPollingBot() {
     private val log = LoggerFactory.getLogger(javaClass)
     private val config: BotConfig = Validate.notNull(config, "config")
-    private val adminChatId: Long
+    private val adminChatId: Long = config.adminId.toLong()
     private val twitter: TwitterHelper
 
     init {
-        this.adminChatId = config.adminId.toLong()
         this.twitter = TwitterHelper(File("/tmp"), File(config.ffMpegPath),
                 File(config.ffProbePath))
         log.info(String.format("Media-ext bot started"))
@@ -46,6 +45,8 @@ constructor(config: BotConfig) : TelegramLongPollingBot() {
             if (adminChatId != userId.toLong()) {
                 try {
                     sendMarkdownMessage(chatId, "⚠️*Sorry, this bot only for his owner :)*️")
+
+                    sendAlertToAdmin(update)
                 } catch (e: TelegramApiException) {
                     e.printStackTrace()
                     log.error(e.message, e)
@@ -81,6 +82,21 @@ constructor(config: BotConfig) : TelegramLongPollingBot() {
             }
 
         }
+    }
+
+    private fun sendAlertToAdmin(update: Update) {
+        val message = update.message
+        val user = message.from
+        val text = cleanMessage(message.text)
+        val msg = """*Message from guest:* ` user: ${user.userName} (${user.firstName} ${user.lastName}),
+            | userId: ${user.id},  message: ${text}`""".trimMargin()
+        sendMarkdownMessage(adminChatId, msg)
+    }
+
+    private fun cleanMessage(text: String): String {
+        return text.replace("`", "")
+                .replace("*", "")
+                .replace("_", "")
     }
 
     private fun handleUrl(command: String, chatId: Long) {
