@@ -3,8 +3,8 @@ package io.arusland.telegram
 import org.apache.commons.lang3.StringUtils
 import org.slf4j.LoggerFactory
 import org.telegram.telegrambots.ApiContextInitializer
-import org.telegram.telegrambots.TelegramBotsApi
-import org.telegram.telegrambots.exceptions.TelegramApiException
+import org.telegram.telegrambots.meta.TelegramBotsApi
+import org.telegram.telegrambots.meta.exceptions.TelegramApiException
 import java.net.Authenticator
 import java.net.PasswordAuthentication
 

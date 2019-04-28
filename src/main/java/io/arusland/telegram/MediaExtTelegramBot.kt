@@ -4,14 +4,14 @@ import io.arusland.twitter.TwitterHelper
 import org.apache.commons.io.FileUtils
 import org.apache.commons.lang3.Validate
 import org.slf4j.LoggerFactory
-import org.telegram.telegrambots.api.methods.send.SendDocument
-import org.telegram.telegrambots.api.methods.send.SendMessage
-import org.telegram.telegrambots.api.objects.Message
-import org.telegram.telegrambots.api.objects.Update
-import org.telegram.telegrambots.api.objects.replykeyboard.ReplyKeyboardMarkup
-import org.telegram.telegrambots.api.objects.replykeyboard.buttons.KeyboardRow
 import org.telegram.telegrambots.bots.TelegramLongPollingBot
-import org.telegram.telegrambots.exceptions.TelegramApiException
+import org.telegram.telegrambots.meta.api.methods.send.SendDocument
+import org.telegram.telegrambots.meta.api.methods.send.SendMessage
+import org.telegram.telegrambots.meta.api.objects.Message
+import org.telegram.telegrambots.meta.api.objects.Update
+import org.telegram.telegrambots.meta.api.objects.replykeyboard.ReplyKeyboardMarkup
+import org.telegram.telegrambots.meta.api.objects.replykeyboard.buttons.KeyboardRow
+import org.telegram.telegrambots.meta.exceptions.TelegramApiException
 import java.io.File
 import java.net.MalformedURLException
 import java.net.URL
@@ -140,7 +140,7 @@ class MediaExtTelegramBot constructor(config: BotConfig) : TelegramLongPollingBo
     fun sendFile(chatId: Long?, file: File, comment: String) {
         val doc = SendDocument()
         doc.chatId = chatId!!.toString()
-        doc.setNewDocument(file)
+        doc.setDocument(file)
 
         if (comment.isNotBlank()) {
             doc.caption = comment
@@ -148,7 +148,7 @@ class MediaExtTelegramBot constructor(config: BotConfig) : TelegramLongPollingBo
 
         try {
             log.info("Sending file: $doc")
-            sendDocument(doc)
+            execute(doc)
         } catch (e: TelegramApiException) {
             log.error(e.message, e)
         }
