@@ -15,7 +15,6 @@ import org.telegram.telegrambots.meta.exceptions.TelegramApiException
 import java.io.File
 import java.net.MalformedURLException
 import java.net.URL
-import java.util.*
 
 /**
  * @author Ruslan Absalyamov
@@ -26,12 +25,15 @@ class MediaExtTelegramBot constructor(config: BotConfig) : TelegramLongPollingBo
     private val config: BotConfig = Validate.notNull(config, "config")
     private val adminChatId: Long = config.adminId.toLong()
     private val twitter: TwitterHelper
+    private val allowedUsers = mutableSetOf<Long>()
+    private val PROPS_DIR = File(System.getProperty("user.home"), ".media-ext")
 
     init {
         this.twitter = TwitterHelper(File("/tmp"), File(config.ffMpegPath),
                 File(config.ffProbePath))
         log.info(String.format("Media-ext bot started"))
         sendMarkdownMessage(adminChatId, "*Bot started!*")
+        allowedUsers.addAll(loadAllowedUsers())
     }
 
     override fun onUpdateReceived(update: Update) {
@@ -39,9 +41,10 @@ class MediaExtTelegramBot constructor(config: BotConfig) : TelegramLongPollingBo
 
         if (update.hasMessage()) {
             val chatId = update.message.chatId!!
-            val userId = update.message.from.id!!
+            val userId = update.message.from.id!!.toLong()
+            val isAdmin = adminChatId == userId
 
-            if (adminChatId != userId.toLong()) {
+            if (!isAdmin && !allowedUsers.contains(userId)) {
                 try {
                     sendMarkdownMessage(chatId, "⚠️*Sorry, this bot only for his owner :)*️")
 
@@ -55,13 +58,17 @@ class MediaExtTelegramBot constructor(config: BotConfig) : TelegramLongPollingBo
             }
 
             try {
+                if (!isAdmin) {
+                    sendAlertToAdmin(update)
+                }
+
                 if (update.message.hasText()) {
                     val command = update.message.text.trim()
 
                     if (command.startsWith("/")) {
                         val cmd = parseCommand(command)
                         val arg = parseArg(command)
-                        handleCommand(cmd, arg, chatId, userId)
+                        handleCommand(cmd, arg, chatId, userId, isAdmin)
                     } else {
                         handleUrl(command, chatId)
                     }
@@ -77,9 +84,7 @@ class MediaExtTelegramBot constructor(config: BotConfig) : TelegramLongPollingBo
                     e1.printStackTrace()
                     log.error(e.message, e)
                 }
-
             }
-
         }
     }
 
@@ -119,22 +124,65 @@ class MediaExtTelegramBot constructor(config: BotConfig) : TelegramLongPollingBo
             log.error(e.message, e)
             sendMarkdownMessage(chatId, "⛔*Invalid url*")
         }
-
     }
 
-    private fun handleCommand(command: String, arg: String, chatId: Long, userId: Int) {
+    private fun handleCommand(command: String, arg: String, chatId: Long, userId: Long, isAdmin: Boolean) {
         if ("help" == command || "start" == command) {
-            handleHelpCommand(chatId)
-        } else if ("kill" == command) {
-            sendMarkdownMessage(chatId, "*Bye bye*")
-            System.exit(0)
+            handleHelpCommand(chatId, isAdmin)
+        } else if (isAdmin) {
+            if ("kill" == command) {
+                sendMarkdownMessage(chatId, "*Bye bye*")
+                System.exit(0)
+            } else if ("reboot" == command) {
+                if ("me" == arg) {
+                    sendMarkdownMessage(chatId, "*Bye bye*")
+                    Runtime.getRuntime().exec("reboot")
+                } else {
+                    sendMarkdownMessage(chatId, "Proper command: /reboot me")
+                }
+            } else if ("addUser" == command) {
+                handleAddUserCommand(chatId, arg)
+            } else if ("delUser" == command) {
+                handleRemoveUserCommand(chatId, arg)
+            } else if ("listUsers" == command) {
+                handleListUserCommand(chatId)
+            } else {
+                sendMessage(chatId, UNKNOWN_COMMAND)
+            }
         } else {
             sendMessage(chatId, UNKNOWN_COMMAND)
         }
     }
 
-    private fun handleHelpCommand(chatId: Long) {
-        sendMarkdownMessage(chatId, "*Please, send me some url*")
+    private fun handleListUserCommand(chatId: Long) {
+        sendMessage(chatId, "Allowed users: $allowedUsers")
+    }
+
+    private fun handleAddUserCommand(chatId: Long, userIdRaw: String) {
+        allowedUsers.add(userIdRaw.toLong())
+        saveAllowedUsers(allowedUsers)
+        sendMessage(chatId, "User added: $userIdRaw.\nAll users: $allowedUsers")
+    }
+
+    private fun handleRemoveUserCommand(chatId: Long, userIdRaw: String) {
+        allowedUsers.remove(userIdRaw.toLong())
+        saveAllowedUsers(allowedUsers)
+        sendMessage(chatId, "User removed: $userIdRaw.\nAll users: $allowedUsers")
+    }
+
+    private fun handleHelpCommand(chatId: Long, isAdmin: Boolean) {
+        if (isAdmin) {
+            sendMessage(chatId, """Please, send me some url!
+                |Or command:
+                |  /addUser user_id - add user
+                |  /delUser user_id - remove user
+                |  /listUsers - show allowed users
+                |  /kill - kill me :(
+                |  /reboot me - reboot system!⚠️
+            """.trimMargin())
+        } else {
+            sendMarkdownMessage(chatId, "*Please, send me some url*")
+        }
     }
 
     fun sendFile(chatId: Long?, file: File, comment: String) {
@@ -240,8 +288,31 @@ class MediaExtTelegramBot constructor(config: BotConfig) : TelegramLongPollingBo
         replyKeyboardMarkup.keyboard = keyboard
     }
 
+    private fun loadAllowedUsers(): Set<Long> {
+        var file = File(PROPS_DIR, ALLOWED_LIST)
+
+        return if (file.exists()) {
+            file.readLines(Charsets.UTF_8)
+                    .filter { it.isNotBlank() }
+                    .map { it.toLong() }
+                    .toSet()
+        } else {
+            emptySet()
+        }
+    }
+
+    private fun saveAllowedUsers(users: Set<Long>) {
+        if (!PROPS_DIR.exists()) {
+            PROPS_DIR.mkdirs()
+        }
+
+        var file = File(PROPS_DIR, ALLOWED_LIST)
+        file.writeText(users.joinToString(System.lineSeparator()), Charsets.UTF_8)
+    }
+
     companion object {
         private const val UNKNOWN_COMMAND = "⚠️Unknown command⚠"
+        private const val ALLOWED_LIST = "allowedUsers.txt"
         private const val TEXT_MESSAGE_MAX_LENGTH = 4096
     }
 }
