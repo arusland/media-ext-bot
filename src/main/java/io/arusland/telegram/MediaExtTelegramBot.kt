@@ -106,7 +106,7 @@ constructor(config: BotConfig) : TelegramLongPollingBot() {
             // TODO: make async
             val file = twitter.downloadMediaFrom(url)
 
-            if (file != null && file.exists()) {
+            if (file.exists()) {
                 sendFile(chatId, file)
                 FileUtils.deleteQuietly(file)
             } else {

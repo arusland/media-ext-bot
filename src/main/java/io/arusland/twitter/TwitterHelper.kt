@@ -92,7 +92,6 @@ class TwitterHelper(private val tempDir: File, private val ffmpegPath: File, pri
         return outputFile
     }
 
-    @Throws(IOException::class)
     private fun convertFfmpeg(input: File, output: File) {
         val ffmpeg = FFmpeg(ffmpegPath.path)
         val ffprobe = FFprobe(ffprobePath.path)
@@ -113,7 +112,6 @@ class TwitterHelper(private val tempDir: File, private val ffmpegPath: File, pri
         executor.createJob(builder).run()
     }
 
-    @Throws(IOException::class)
     private fun loadInfo(tweetUrl: URL): TweetInfo? {
         val content = loadText(tweetUrl)
         val mc = initJsUrlPattern.matcher(content)
