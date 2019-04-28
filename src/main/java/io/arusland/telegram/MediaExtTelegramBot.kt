@@ -21,8 +21,7 @@ import java.util.*
  * @author Ruslan Absalyamov
  * @since 1.0
  */
-class MediaExtTelegramBot @Throws(TelegramApiException::class)
-constructor(config: BotConfig) : TelegramLongPollingBot() {
+class MediaExtTelegramBot constructor(config: BotConfig) : TelegramLongPollingBot() {
     private val log = LoggerFactory.getLogger(javaClass)
     private val config: BotConfig = Validate.notNull(config, "config")
     private val adminChatId: Long = config.adminId.toLong()
@@ -57,7 +56,7 @@ constructor(config: BotConfig) : TelegramLongPollingBot() {
 
             try {
                 if (update.message.hasText()) {
-                    val command = update.message.text
+                    val command = update.message.text.trim()
 
                     if (command.startsWith("/")) {
                         val cmd = parseCommand(command)
@@ -101,19 +100,23 @@ constructor(config: BotConfig) : TelegramLongPollingBot() {
 
     private fun handleUrl(command: String, chatId: Long) {
         try {
-            val url = URL(command)
+            val index = command.indexOf(' ')
+            val comment = if (index > 0) command.substring(index + 1) else ""
+            val urlRaw = if (index > 0) command.substring(0, index) else command
+
+            val url = URL(urlRaw)
             sendMarkdownMessage(chatId, "_Please, wait..._")
             // TODO: make async
             val file = twitter.downloadMediaFrom(url)
 
             if (file.exists()) {
-                sendFile(chatId, file)
+                sendFile(chatId, file, comment)
                 FileUtils.deleteQuietly(file)
             } else {
                 sendMarkdownMessage(chatId, "⛔*Media not found* \uD83D\uDE1E")
             }
         } catch (e: MalformedURLException) {
-            log.warn(e.message, e)
+            log.error(e.message, e)
             sendMarkdownMessage(chatId, "⛔*Invalid url*")
         }
 
@@ -134,10 +137,14 @@ constructor(config: BotConfig) : TelegramLongPollingBot() {
         sendMarkdownMessage(chatId, "*Please, send me some url*")
     }
 
-    fun sendFile(chatId: Long?, file: File) {
+    fun sendFile(chatId: Long?, file: File, comment: String) {
         val doc = SendDocument()
         doc.chatId = chatId!!.toString()
         doc.setNewDocument(file)
+
+        if (comment.isNotBlank()) {
+            doc.caption = comment
+        }
 
         try {
             log.info("Sending file: $doc")
