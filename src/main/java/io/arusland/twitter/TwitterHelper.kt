@@ -47,6 +47,24 @@ class TwitterHelper(private val tempDir: File, private val ffmpegPath: File, pri
 
         log.info("playbackUrl=$playbackUrl")
 
+        if (playbackUrl.path.contains(".mp4")) {
+            return loadMp4Format(playbackUrl, info)
+        } else {
+            return loadM3u8Format(playbackUrl, info)
+        }
+    }
+
+    private fun loadMp4Format(playbackUrl: URL, info: TweetInfo): File {
+        val outputFile = File(tempDir, info.tweetId + ".mp4")
+
+        FileOutputStream(outputFile).use { os ->
+            os.write(IOUtils.toByteArray(playbackUrl))
+        }
+
+        return outputFile
+    }
+
+    private fun loadM3u8Format(playbackUrl: URL, info: TweetInfo): File {
         val m3u8Master = loadText(playbackUrl)
 
         val masterLines = IOUtils.readLines(StringReader(m3u8Master))
