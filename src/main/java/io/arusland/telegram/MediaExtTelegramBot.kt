@@ -112,10 +112,13 @@ class MediaExtTelegramBot constructor(config: BotConfig) : TelegramLongPollingBo
             val url = URL(urlRaw)
             sendMarkdownMessage(chatId, "_Please, wait..._")
             // TODO: make async
-            val file = twitter.downloadMediaFrom(url)
+            val media = twitter.downloadMediaFrom(url)
+            val file = media.first
+            val info = media.second
 
             if (file.exists()) {
-                sendFile(chatId, file, comment)
+                val finalComment = if (comment == "@" && !info.text.isNullOrEmpty()) info.text else comment
+                sendFile(chatId, file, finalComment)
                 FileUtils.deleteQuietly(file)
             } else {
                 sendMarkdownMessage(chatId, "⛔*Media not found* \uD83D\uDE1E")
