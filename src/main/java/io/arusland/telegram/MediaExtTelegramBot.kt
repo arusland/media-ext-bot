@@ -6,9 +6,12 @@ import org.apache.commons.lang3.Validate
 import org.slf4j.LoggerFactory
 import org.telegram.telegrambots.bots.TelegramLongPollingBot
 import org.telegram.telegrambots.meta.api.methods.send.SendDocument
+import org.telegram.telegrambots.meta.api.methods.send.SendMediaGroup
 import org.telegram.telegrambots.meta.api.methods.send.SendMessage
+import org.telegram.telegrambots.meta.api.methods.send.SendPhoto
 import org.telegram.telegrambots.meta.api.objects.Message
 import org.telegram.telegrambots.meta.api.objects.Update
+import org.telegram.telegrambots.meta.api.objects.media.InputMediaPhoto
 import org.telegram.telegrambots.meta.api.objects.replykeyboard.ReplyKeyboardMarkup
 import org.telegram.telegrambots.meta.api.objects.replykeyboard.buttons.KeyboardRow
 import org.telegram.telegrambots.meta.exceptions.TelegramApiException
@@ -115,11 +118,24 @@ class MediaExtTelegramBot constructor(config: BotConfig) : TelegramLongPollingBo
             val media = twitter.downloadMediaFrom(url)
             val file = media.first
             val info = media.second
+            val finalComment = if (comment == "@" && !info.text.isNullOrEmpty()) info.text else comment
 
-            if (file.exists()) {
-                val finalComment = if (comment == "@" && !info.text.isNullOrEmpty()) info.text else comment
-                sendFile(chatId, file, finalComment)
-                FileUtils.deleteQuietly(file)
+            if (file != null) {
+                if (file.exists()) {
+
+                    sendFile(chatId, file, finalComment)
+                    FileUtils.deleteQuietly(file)
+                } else {
+                    sendMarkdownMessage(chatId, "⛔*Media not found* \uD83D\uDE1E")
+                }
+            } else if (info.imageUrls.isNotEmpty()) {
+                val files = info.imageUrls.mapIndexed { index, url ->
+                    twitter.loadImage(info.tweetId + index.toString(), url)
+                }
+
+                sendImages(chatId, files, finalComment)
+
+                files.forEach { FileUtils.deleteQuietly(it) }
             } else {
                 sendMarkdownMessage(chatId, "⛔*Media not found* \uD83D\uDE1E")
             }
@@ -188,9 +204,9 @@ class MediaExtTelegramBot constructor(config: BotConfig) : TelegramLongPollingBo
         }
     }
 
-    fun sendFile(chatId: Long?, file: File, comment: String) {
+    fun sendFile(chatId: Long, file: File, comment: String) {
         val doc = SendDocument()
-        doc.chatId = chatId!!.toString()
+        doc.chatId = chatId.toString()
         doc.setDocument(file)
 
         if (comment.isNotBlank()) {
@@ -204,6 +220,45 @@ class MediaExtTelegramBot constructor(config: BotConfig) : TelegramLongPollingBo
             log.error(e.message, e)
         }
 
+    }
+
+    private fun sendImages(chatId: Long, files: List<File>, comment: String) {
+        if (files.size == 1) {
+            sendImage(chatId, files.first(), comment)
+            return
+        }
+
+        val doc = SendMediaGroup()
+        doc.chatId = chatId.toString()
+        doc.media = files.map { file -> InputMediaPhoto().setMedia(file, file.name) }
+
+        if (comment.isNotBlank()) {
+            doc.media.first().caption = comment
+        }
+
+        try {
+            log.info("Sending photos: $doc")
+            execute(doc)
+        } catch (e: TelegramApiException) {
+            log.error(e.message, e)
+        }
+    }
+
+    fun sendImage(chatId: Long, file: File, comment: String) {
+        val doc = SendPhoto()
+        doc.chatId = chatId.toString()
+        doc.setPhoto(file)
+
+        if (comment.isNotBlank()) {
+            doc.caption = comment
+        }
+
+        try {
+            log.info("Sending photo: $doc")
+            execute(doc)
+        } catch (e: TelegramApiException) {
+            log.error(e.message, e)
+        }
     }
 
     private fun parseArg(command: String): String {

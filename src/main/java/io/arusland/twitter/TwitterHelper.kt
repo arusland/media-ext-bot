@@ -12,17 +12,18 @@ import org.jsoup.Jsoup
 import org.jsoup.nodes.TextNode
 import org.slf4j.LoggerFactory
 import java.io.*
+import java.lang.Exception
 import java.net.HttpURLConnection
 import java.net.URL
 import java.util.regex.Pattern
 import kotlin.streams.toList
 
-class TweetInfo(val bearerToken: String, val tweetId: String, val text: String)
+class TweetInfo(val bearerToken: String, val tweetId: String, val text: String, val imageUrls: List<String>)
 
 class TwitterHelper(private val tempDir: File, private val ffmpegPath: File, private val ffprobePath: File) {
     private val log = LoggerFactory.getLogger(javaClass)
 
-    fun downloadMediaFrom(tweetUrl: URL): Pair<File, TweetInfo> {
+    fun downloadMediaFrom(tweetUrl: URL): Pair<File?, TweetInfo> {
         val info = loadInfo(tweetUrl)!!
         val headers = hashMapOf("authorization" to "Bearer " + info.bearerToken)
         val tokenJson = loadText(URL("https://api.twitter.com/1.1/guest/activate.json"), headers, true)
@@ -37,23 +38,43 @@ class TwitterHelper(private val tempDir: File, private val ffmpegPath: File, pri
 
         headers["x-guest-token"] = guestToken
 
-        var config = loadText(URL("https://api.twitter.com/1.1/videos/tweet/config/" + info!!.tweetId + ".json"), headers, false)
-        val configMap = Gson().fromJson(config, Map::class.java)
-        config = GsonBuilder().setPrettyPrinting().create().toJson(configMap)
+        try {
+            var config = loadText(URL("https://api.twitter.com/1.1/videos/tweet/config/" + info!!.tweetId + ".json"), headers, false)
+            val configMap = Gson().fromJson(config, Map::class.java)
+            config = GsonBuilder().setPrettyPrinting().create().toJson(configMap)
 
-        log.info(config)
+            log.info(config)
 
-        val track = configMap["track"] as Map<String, String>
+            val track = configMap["track"] as Map<String, String>
 
-        val playbackUrl = URL(track["playbackUrl"])
+            val playbackUrl = URL(track["playbackUrl"])
 
-        log.info("playbackUrl=$playbackUrl")
+            log.info("playbackUrl=$playbackUrl")
 
-        if (playbackUrl.path.contains(".mp4")) {
-            return loadMp4Format(playbackUrl, info) to info
-        } else {
-            return loadM3u8Format(playbackUrl, info) to info
+            if (playbackUrl.path.contains(".mp4")) {
+                return loadMp4Format(playbackUrl, info) to info
+            } else {
+                return loadM3u8Format(playbackUrl, info) to info
+            }
+        } catch (e: Exception) {
+            if (e is FileNotFoundException && info.imageUrls.isNotEmpty()) {
+                return null to info
+            }
+
+            throw e
         }
+    }
+
+    fun loadImage(imageId: String, imageUrl: String): File {
+        val outputFile = File(tempDir, "$imageId.jpg")
+
+        FileOutputStream(outputFile).use { os ->
+            URL(imageUrl).openStream().use {
+                it.copyTo(os)
+            }
+        }
+
+        return outputFile
     }
 
     private fun loadMp4Format(playbackUrl: URL, info: TweetInfo): File {
@@ -137,11 +158,22 @@ class TwitterHelper(private val tempDir: File, private val ffmpegPath: File, pri
         val doc = Jsoup.parse(content)
         val elem = doc.selectFirst("p.tweet-text")
         val tweetText = if (elem != null) {
-            (elem.childNodes().find { it is TextNode } as TextNode?)?.text() ?: ""
+            (elem.childNodes().find { it is TextNode } as TextNode?)?.wholeText ?: ""
         } else {
-
             ""
         }
+        val container = doc.selectFirst(".AdaptiveMedia-container")
+        val tweetImageUrls = if (container != null) {
+            val images = container.select("img[data-aria-label-part]")
+            if (images != null) {
+                images.map { it.attr("src") }.filter { it != null }
+            } else {
+                emptyList()
+            }
+        } else {
+            emptyList()
+        }
+
         val mc = initJsUrlPattern.matcher(content)
         val idmc = tweetIdPattern.matcher(tweetUrl.toString())
         idmc.find()
@@ -157,7 +189,7 @@ class TwitterHelper(private val tempDir: File, private val ffmpegPath: File, pri
             val mc2 = bearerTokenPattern.matcher(initJsContent)
 
             if (mc2.find()) {
-                return TweetInfo(mc2.group(1), tweetId, tweetText)
+                return TweetInfo(mc2.group(1), tweetId, tweetText, tweetImageUrls)
             }
         }
 
