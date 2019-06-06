@@ -5,10 +5,7 @@ import org.apache.commons.io.FileUtils
 import org.apache.commons.lang3.Validate
 import org.slf4j.LoggerFactory
 import org.telegram.telegrambots.bots.TelegramLongPollingBot
-import org.telegram.telegrambots.meta.api.methods.send.SendDocument
-import org.telegram.telegrambots.meta.api.methods.send.SendMediaGroup
-import org.telegram.telegrambots.meta.api.methods.send.SendMessage
-import org.telegram.telegrambots.meta.api.methods.send.SendPhoto
+import org.telegram.telegrambots.meta.api.methods.send.*
 import org.telegram.telegrambots.meta.api.objects.Message
 import org.telegram.telegrambots.meta.api.objects.Update
 import org.telegram.telegrambots.meta.api.objects.media.InputMediaPhoto
@@ -204,18 +201,18 @@ class MediaExtTelegramBot constructor(config: BotConfig) : TelegramLongPollingBo
         }
     }
 
-    fun sendFile(chatId: Long, file: File, comment: String) {
-        val doc = SendDocument()
-        doc.chatId = chatId.toString()
-        doc.setDocument(file)
+    private fun sendFile(chatId: Long, file: File, comment: String) {
+        val video = SendVideo()
+        video.chatId = chatId.toString()
+        video.setVideo(file)
 
         if (comment.isNotBlank()) {
-            doc.caption = comment
+            video.caption = comment
         }
 
         try {
-            log.info("Sending file: $doc")
-            execute(doc)
+            log.info("Sending file: $video")
+            execute(video)
         } catch (e: TelegramApiException) {
             log.error(e.message, e)
         }
