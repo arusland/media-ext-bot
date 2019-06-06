@@ -1,7 +1,12 @@
 package io.arusland.telegram
 
 import io.arusland.twitter.TwitterHelper
+import io.arusland.util.isFileSupported
+import io.arusland.util.isImage
+import io.arusland.util.isVideo
+import io.arusland.util.loadBinaryFile
 import org.apache.commons.io.FileUtils
+import org.apache.commons.io.FilenameUtils
 import org.apache.commons.lang3.Validate
 import org.slf4j.LoggerFactory
 import org.telegram.telegrambots.bots.TelegramLongPollingBot
@@ -108,37 +113,79 @@ class MediaExtTelegramBot constructor(config: BotConfig) : TelegramLongPollingBo
             val index = command.indexOf(' ')
             val comment = if (index > 0) command.substring(index + 1) else ""
             val urlRaw = if (index > 0) command.substring(0, index) else command
-
             val url = URL(urlRaw)
+
             sendMarkdownMessage(chatId, "_Please, wait..._")
-            // TODO: make async
-            val media = twitter.downloadMediaFrom(url)
-            val file = media.first
-            val info = media.second
-            val finalComment = if (comment == "@" && !info.text.isNullOrEmpty()) info.text else comment
 
-            if (file != null) {
-                if (file.exists()) {
-
-                    sendFile(chatId, file, finalComment)
-                    FileUtils.deleteQuietly(file)
-                } else {
-                    sendMarkdownMessage(chatId, "⛔*Media not found* \uD83D\uDE1E")
-                }
-            } else if (info.imageUrls.isNotEmpty()) {
-                val files = info.imageUrls.mapIndexed { index, url ->
-                    twitter.loadImage(info.tweetId + index.toString(), url)
-                }
-
-                sendImages(chatId, files, finalComment)
-
-                files.forEach { FileUtils.deleteQuietly(it) }
-            } else {
-                sendMarkdownMessage(chatId, "⛔*Media not found* \uD83D\uDE1E")
+            when {
+                urlRaw.startsWith("https://twitter.com") -> handleTwitterUrl(url, chatId, comment)
+                isFileSupported(urlRaw) -> handleBinaryUrl(url, chatId, comment)
+                else -> sendMessage(chatId, UNKNOWN_COMMAND)
             }
         } catch (e: MalformedURLException) {
             log.error(e.message, e)
             sendMarkdownMessage(chatId, "⛔*Invalid url*")
+        }
+    }
+
+    private fun handleBinaryUrl(url: URL, chatId: Long, comment: String) {
+        val ext = FilenameUtils.getExtension(url.path)
+        val file = loadBinaryFile(url, System.nanoTime().toString(), ext)
+        sendFile(chatId, file, comment)
+        FileUtils.deleteQuietly(file)
+    }
+
+    private fun sendFile(chatId: Long, file: File, comment: String) {
+        if (file.isVideo()) {
+            sendVideo(chatId, file, comment)
+        } else if (file.isImage()) {
+            sendImage(chatId, file, comment)
+        } else {
+            sendDocument(chatId, file, comment)
+        }
+    }
+
+    private fun sendDocument(chatId: Long, file: File, comment: String) {
+        val doc = SendDocument()
+        doc.chatId = chatId.toString()
+        doc.setDocument(file)
+
+        if (comment.isNotBlank()) {
+            doc.caption = comment
+        }
+
+        try {
+            log.info("Sending file: $doc")
+            execute(doc)
+        } catch (e: TelegramApiException) {
+            log.error(e.message, e)
+        }
+    }
+
+    private fun handleTwitterUrl(url: URL, chatId: Long, comment: String) {
+        // TODO: make async
+        val media = twitter.downloadMediaFrom(url)
+        val file = media.first
+        val info = media.second
+        val finalComment = if (comment == "@" && !info.text.isNullOrEmpty()) info.text else comment
+
+        if (file != null) {
+            if (file.exists()) {
+                sendVideo(chatId, file, finalComment)
+                FileUtils.deleteQuietly(file)
+            } else {
+                sendMarkdownMessage(chatId, "⛔*Media not found* \uD83D\uDE1E")
+            }
+        } else if (info.imageUrls.isNotEmpty()) {
+            val files = info.imageUrls.mapIndexed { index, url ->
+                loadBinaryFile(URL(url), info.tweetId + index.toString(), "jpg")
+            }
+
+            sendImages(chatId, files, finalComment)
+
+            files.forEach { FileUtils.deleteQuietly(it) }
+        } else {
+            sendMarkdownMessage(chatId, "⛔*Media not found* \uD83D\uDE1E")
         }
     }
 
@@ -201,7 +248,7 @@ class MediaExtTelegramBot constructor(config: BotConfig) : TelegramLongPollingBo
         }
     }
 
-    private fun sendFile(chatId: Long, file: File, comment: String) {
+    private fun sendVideo(chatId: Long, file: File, comment: String) {
         val video = SendVideo()
         video.chatId = chatId.toString()
         video.setVideo(file)
@@ -216,7 +263,6 @@ class MediaExtTelegramBot constructor(config: BotConfig) : TelegramLongPollingBo
         } catch (e: TelegramApiException) {
             log.error(e.message, e)
         }
-
     }
 
     private fun sendImages(chatId: Long, files: List<File>, comment: String) {
@@ -241,7 +287,7 @@ class MediaExtTelegramBot constructor(config: BotConfig) : TelegramLongPollingBo
         }
     }
 
-    fun sendImage(chatId: Long, file: File, comment: String) {
+    private fun sendImage(chatId: Long, file: File, comment: String) {
         val doc = SendPhoto()
         doc.chatId = chatId.toString()
         doc.setPhoto(file)

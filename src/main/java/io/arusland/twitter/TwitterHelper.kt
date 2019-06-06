@@ -2,6 +2,7 @@ package io.arusland.twitter
 
 import com.google.gson.Gson
 import com.google.gson.GsonBuilder
+import io.arusland.util.loadBinaryFile
 import net.bramp.ffmpeg.FFmpeg
 import net.bramp.ffmpeg.FFmpegExecutor
 import net.bramp.ffmpeg.FFprobe
@@ -52,7 +53,7 @@ class TwitterHelper(private val tempDir: File, private val ffmpegPath: File, pri
             log.info("playbackUrl=$playbackUrl")
 
             if (playbackUrl.path.contains(".mp4")) {
-                return loadMp4Format(playbackUrl, info) to info
+                return loadBinaryFile(playbackUrl, info.tweetId, "mp4") to info
             } else {
                 return loadM3u8Format(playbackUrl, info) to info
             }
@@ -63,28 +64,6 @@ class TwitterHelper(private val tempDir: File, private val ffmpegPath: File, pri
 
             throw e
         }
-    }
-
-    fun loadImage(imageId: String, imageUrl: String): File {
-        val outputFile = File(tempDir, "$imageId.jpg")
-
-        FileOutputStream(outputFile).use { os ->
-            URL(imageUrl).openStream().use {
-                it.copyTo(os)
-            }
-        }
-
-        return outputFile
-    }
-
-    private fun loadMp4Format(playbackUrl: URL, info: TweetInfo): File {
-        val outputFile = File(tempDir, info.tweetId + ".mp4")
-
-        FileOutputStream(outputFile).use { os ->
-            os.write(IOUtils.toByteArray(playbackUrl))
-        }
-
-        return outputFile
     }
 
     private fun loadM3u8Format(playbackUrl: URL, info: TweetInfo): File {
