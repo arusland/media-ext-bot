@@ -20,6 +20,8 @@ import org.telegram.telegrambots.meta.exceptions.TelegramApiException
 import java.io.File
 import java.net.MalformedURLException
 import java.net.URL
+import java.util.*
+import kotlin.collections.ArrayList
 
 /**
  * @author Ruslan Absalyamov
@@ -32,6 +34,8 @@ class MediaExtTelegramBot constructor(config: BotConfig) : TelegramLongPollingBo
     private val twitter: TwitterHelper
     private val allowedUsers = mutableSetOf<Long>()
     private val PROPS_DIR = File(System.getProperty("user.home"), ".media-ext")
+    private var lastMessage: Message? = null
+    private var lastMessageTime: Date = Date()
 
     init {
         this.twitter = TwitterHelper(File("/tmp"), File(config.ffMpegPath),
@@ -74,12 +78,21 @@ class MediaExtTelegramBot constructor(config: BotConfig) : TelegramLongPollingBo
                         val cmd = parseCommand(command)
                         val arg = parseArg(command)
                         handleCommand(cmd, arg, chatId, userId, isAdmin)
-                    } else {
-                        handleUrl(command, chatId)
+                    } else if (command.startsWith("http")) {
+                        handleUrl(command, chatId, getLastComment())
                     }
+                } else if (update.message.hasVideo()) {
+                    val video = update.message.video
+                    sendVideo(chatId, video.fileId, getLastComment())
+                } else if (update.message.hasPhoto()) {
+                    val maxPhoto = update.message.photo.maxBy { it.height * it.width }?.fileId!!
+                    sendImages(chatId, arrayOf(maxPhoto), getLastComment())
                 } else {
                     sendMessage(chatId, UNKNOWN_COMMAND)
                 }
+
+                lastMessage = update.message
+                lastMessageTime = Date()
             } catch (e: Exception) {
                 e.printStackTrace()
                 log.error(e.message, e)
@@ -91,6 +104,15 @@ class MediaExtTelegramBot constructor(config: BotConfig) : TelegramLongPollingBo
                 }
             }
         }
+    }
+
+    private fun getLastComment(): String {
+        val lastMessage = lastMessage
+        if ((Date().time - lastMessageTime.time) < 1000 && lastMessage != null) {
+            return if (lastMessage.hasText()) lastMessage.text else lastMessage.caption
+        }
+
+        return ""
     }
 
     private fun sendAlertToAdmin(update: Update) {
@@ -108,10 +130,10 @@ class MediaExtTelegramBot constructor(config: BotConfig) : TelegramLongPollingBo
                 .replace("_", "")
     }
 
-    private fun handleUrl(command: String, chatId: Long) {
+    private fun handleUrl(command: String, chatId: Long, lastComment: String) {
         try {
             val index = command.indexOf(' ')
-            val comment = if (index > 0) command.substring(index + 1) else ""
+            val comment = if (index > 0) command.substring(index + 1) else lastComment
             val urlRaw = if (index > 0) command.substring(0, index) else command
             val url = URL(urlRaw)
 
@@ -248,6 +270,23 @@ class MediaExtTelegramBot constructor(config: BotConfig) : TelegramLongPollingBo
         }
     }
 
+    private fun sendVideo(chatId: Long, fileId: String, comment: String) {
+        val video = SendVideo()
+        video.chatId = chatId.toString()
+        video.setVideo(fileId)
+
+        if (comment.isNotBlank()) {
+            video.caption = comment
+        }
+
+        try {
+            log.info("Sending file: $video")
+            execute(video)
+        } catch (e: TelegramApiException) {
+            log.error(e.message, e)
+        }
+    }
+
     private fun sendVideo(chatId: Long, file: File, comment: String) {
         val video = SendVideo()
         video.chatId = chatId.toString()
@@ -260,6 +299,23 @@ class MediaExtTelegramBot constructor(config: BotConfig) : TelegramLongPollingBo
         try {
             log.info("Sending file: $video")
             execute(video)
+        } catch (e: TelegramApiException) {
+            log.error(e.message, e)
+        }
+    }
+
+    private fun sendImages(chatId: Long, files: Array<String>, comment: String) {
+        val doc = SendMediaGroup()
+        doc.chatId = chatId.toString()
+        doc.media = files.map { imageIds -> InputMediaPhoto().setMedia(imageIds) }
+
+        if (comment.isNotBlank()) {
+            doc.media.first().caption = comment
+        }
+
+        try {
+            log.info("Sending photos: $doc")
+            execute(doc)
         } catch (e: TelegramApiException) {
             log.error(e.message, e)
         }
@@ -288,17 +344,17 @@ class MediaExtTelegramBot constructor(config: BotConfig) : TelegramLongPollingBo
     }
 
     private fun sendImage(chatId: Long, file: File, comment: String) {
-        val doc = SendPhoto()
-        doc.chatId = chatId.toString()
-        doc.setPhoto(file)
+        val image = SendPhoto()
+        image.chatId = chatId.toString()
+        image.setPhoto(file)
 
         if (comment.isNotBlank()) {
-            doc.caption = comment
+            image.caption = comment
         }
 
         try {
-            log.info("Sending photo: $doc")
-            execute(doc)
+            log.info("Sending photo: $image")
+            execute(image)
         } catch (e: TelegramApiException) {
             log.error(e.message, e)
         }
