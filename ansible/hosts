@@ -1,0 +1,2 @@
+[prod]
+185.250.207.175 ansible_ssh_user=root

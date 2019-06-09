@@ -1,0 +1,56 @@
+---
+- name: Compile and install media-ext-bot
+  hosts: prod
+  gather_facts: False    
+  
+  tasks:
+  - name: Install maven
+    apt:
+      name: maven
+
+  - name: Remove project dir
+    file:
+      path: /tmp/media-ext-bot
+      state: absent
+
+  - name: Clone project's repo
+    git:
+      repo: https://github.com/arusland/media-ext-bot.git
+      dest: /tmp/media-ext-bot
+      force: yes
+
+  - name: Make bot jar
+    shell: "mvn clean package"
+    args:
+      chdir: /tmp/media-ext-bot
+    register: mvn_result
+
+  - name: Get running bot processes
+    shell: "pgrep -a -f media-ext-bot.jar | awk '{print $1;}'"
+    register: running_processes
+
+  - name: Kill running processes
+    shell: "kill -9 {{ item }}"
+    with_items: "{{ running_processes.stdout_lines }}"
+    ignore_errors: yes
+
+  - name: "Show killed processes"
+    debug:
+     var: running_processes
+
+  - wait_for:
+      path: "/proc/{{ item }}/status"
+      state: absent
+    with_items: "{{ running_processes.stdout_lines }}"
+    ignore_errors: yes
+
+  - name: Copy jar-file
+    file:
+      remote_src: /tmp/media-ext-bot/target/media-ext-bot-1.0-jar-with-dependencies.jar
+      dest: /home/media-ext-bot/dist/media-ext-bot.jar
+      force: yes
+
+  - name: Runnning application
+    shell: "( ( nohup java -jar media-ext-bot.jar 1>/dev/null 2>&1 ) & )"
+    args:
+      chdir: /home/media-ext-bot/dist/
