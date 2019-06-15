@@ -3,19 +3,15 @@ package io.arusland.telegram
 import org.apache.commons.lang3.StringUtils
 import org.apache.commons.lang3.Validate
 import org.slf4j.LoggerFactory
-import java.io.File
-import java.io.FileInputStream
-import java.io.FileNotFoundException
-import java.io.IOException
+import java.io.*
 import java.util.*
-import kotlin.streams.toList
 
 /**
  * Simple bot configuration
  */
-class BotConfig protected constructor(prop: Properties, private val configFile: File) {
+class BotConfig private constructor(prop: Properties) {
     private val log = LoggerFactory.getLogger(BotConfig::class.java)
-    private val prop: Properties = Validate.notNull(prop, "prop")
+    private val props: Properties = Validate.notNull(prop, "props")
 
     val botName: String
         get() = getProperty("bot.name")
@@ -32,7 +28,7 @@ class BotConfig protected constructor(prop: Properties, private val configFile: 
     /**
      * Returns admin user's id.
      */
-    val adminId: Int
+    val adminId: Long
         get() {
             val selectedUsers = allowedUsersIds
 
@@ -42,50 +38,71 @@ class BotConfig protected constructor(prop: Properties, private val configFile: 
     /**
      * Returns allowed users ids.
      */
-    val allowedUsersIds: List<Int>
+    var allowedUsersIds: List<Long>
         get() {
-            if (prop.containsKey("allowed.userids")) {
-                val ids = getProperty("allowed.userids")
-                try {
-                    return Arrays.stream<String>(ids.split(",".toRegex()).dropLastWhile({ it.isEmpty() }).toTypedArray())
-                            .filter { p -> !p.isEmpty() }
-                            .map { p -> Integer.parseInt(p) }
-                            .toList()
-                } catch (ex: NumberFormatException) {
-                    log.error(ex.message, ex)
-                }
+            return getLongList("allowed.userids")
+        }
+        set(value) {
+            setLongList("allowed.userids", value)
+        }
 
-            }
+    var bannedUsersIds: List<Long>
+        get() {
+            return getLongList("banned.userids")
+        }
+        set(value) {
+            setLongList("banned.userids", value)
+        }
 
-            return emptyList()
+    var allowAnon: Boolean
+        get() {
+            return "true" == getProperty("allow.annon", "false")
+        }
+        set(value) {
+            props.setProperty("allow.annon", value.toString())
         }
 
     private fun getProperty(key: String): String {
-        return Validate.notNull(prop.getProperty(key),
+        return Validate.notNull(props.getProperty(key),
                 "Configuration not found for key: $key")
     }
 
     private fun getProperty(key: String, defValue: String): String {
-        val value = prop.getProperty(key)
+        val value = props.getProperty(key)
 
         return StringUtils.defaultString(value, defValue)
     }
 
+    private fun setLongList(propName: String, list: List<Long>) {
+        props.setProperty(propName, list.joinToString(","))
+    }
+
+    private fun getLongList(propName: String): List<Long> {
+        return getProperty(propName, "")
+                .split(",".toRegex())
+                .filter { it.isNotBlank() }
+                .map { it.trim().toLong() }
+                .toList()
+    }
+
+    fun save(fileName: String) {
+        FileOutputStream(fileName).use { output -> props.store(output, "Media Ext Bot") }
+    }
+
     companion object {
-        fun load(fileName: String): BotConfig {
-            val prop = Properties()
-            var file: File? = null
+        fun load(fileName: String, throwOnError: Boolean = true): BotConfig {
+            val props = Properties()
 
             try {
-                file = File(fileName).canonicalFile
-                FileInputStream(fileName).use { input -> prop.load(input) }
-            } catch (e: FileNotFoundException) {
-                throw RuntimeException(e)
-            } catch (e: IOException) {
-                throw RuntimeException(e)
+                val file = File(fileName).canonicalFile
+                FileInputStream(file).use { input -> props.load(input) }
+            } catch (e: Exception) {
+                if (throwOnError) {
+                    throw RuntimeException(e)
+                }
             }
 
-            return BotConfig(prop, file)
+            return BotConfig(props)
         }
     }
 }

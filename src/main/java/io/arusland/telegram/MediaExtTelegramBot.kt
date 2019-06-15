@@ -30,10 +30,14 @@ import kotlin.collections.ArrayList
 class MediaExtTelegramBot constructor(config: BotConfig) : TelegramLongPollingBot() {
     private val log = LoggerFactory.getLogger(javaClass)
     private val config: BotConfig = Validate.notNull(config, "config")
-    private val adminChatId: Long = config.adminId.toLong()
+    private val adminChatId: Long = config.adminId
     private val twitter: TwitterHelper
     private val allowedUsers = mutableSetOf<Long>()
+    private val bannedUsers = mutableSetOf<Long>()
     private val PROPS_DIR = File(System.getProperty("user.home"), ".media-ext")
+    private val PROPS_FILE = File(PROPS_DIR, "media-ext.properties")
+    private val writeConfig = BotConfig.load(PROPS_FILE.path, false)
+
     private var lastMessage: Message? = null
     private var lastMessageTime: Date = Date()
 
@@ -42,7 +46,8 @@ class MediaExtTelegramBot constructor(config: BotConfig) : TelegramLongPollingBo
                 File(config.ffProbePath))
         log.info(String.format("Media-ext bot started"))
         sendMarkdownMessage(adminChatId, "*Bot started!*")
-        allowedUsers.addAll(loadAllowedUsers())
+        allowedUsers.addAll(writeConfig.allowedUsersIds)
+        bannedUsers.addAll(writeConfig.bannedUsersIds)
     }
 
     override fun onUpdateReceived(update: Update) {
@@ -53,17 +58,24 @@ class MediaExtTelegramBot constructor(config: BotConfig) : TelegramLongPollingBo
             val userId = update.message.from.id!!.toLong()
             val isAdmin = adminChatId == userId
 
-            if (!isAdmin && !allowedUsers.contains(userId)) {
-                try {
-                    sendMarkdownMessage(chatId, "⚠️*Sorry, this bot only for his owner :)*️")
-
-                    sendAlertToAdmin(update)
-                } catch (e: TelegramApiException) {
-                    e.printStackTrace()
-                    log.error(e.message, e)
+            if (!isAdmin) {
+                if (writeConfig.allowAnon && !allowedUsers.contains(userId)) {
+                    allowedUsers.add(userId)
+                    saveProps()
                 }
 
-                return
+                if (!allowedUsers.contains(userId) || bannedUsers.contains(userId)) {
+                    try {
+                        sendMarkdownMessage(chatId, "⚠️*Sorry, this bot only for his owner :)*️")
+
+                        sendAlertToAdmin(update)
+                    } catch (e: TelegramApiException) {
+                        e.printStackTrace()
+                        log.error(e.message, e)
+                    }
+
+                    return
+                }
             }
 
             try {
@@ -226,11 +238,13 @@ class MediaExtTelegramBot constructor(config: BotConfig) : TelegramLongPollingBo
                     sendMarkdownMessage(chatId, "Proper command: /reboot me")
                 }
             } else if ("addUser" == command) {
-                handleAddUserCommand(chatId, arg)
+                handleAddUserCommand(chatId, arg.toLong())
             } else if ("delUser" == command) {
-                handleRemoveUserCommand(chatId, arg)
+                handleRemoveUserCommand(chatId, arg.toLong())
             } else if ("listUsers" == command) {
                 handleListUserCommand(chatId)
+            } else if ("toggleAnon" == command) {
+                handleToggleAnonCommand(chatId)
             } else {
                 sendMessage(chatId, UNKNOWN_COMMAND)
             }
@@ -239,20 +253,28 @@ class MediaExtTelegramBot constructor(config: BotConfig) : TelegramLongPollingBo
         }
     }
 
+    private fun handleToggleAnonCommand(chatId: Long) {
+        writeConfig.allowAnon = !writeConfig.allowAnon
+
+        sendMessage(chatId, "Anon is allowed: ${writeConfig.allowAnon}")
+    }
+
     private fun handleListUserCommand(chatId: Long) {
-        sendMessage(chatId, "Allowed users: $allowedUsers")
+        sendMessage(chatId, "Allowed users: $allowedUsers\nBanned users: $bannedUsers")
     }
 
-    private fun handleAddUserCommand(chatId: Long, userIdRaw: String) {
-        allowedUsers.add(userIdRaw.toLong())
-        saveAllowedUsers(allowedUsers)
-        sendMessage(chatId, "User added: $userIdRaw.\nAll users: $allowedUsers")
+    private fun handleAddUserCommand(chatId: Long, userId: Long) {
+        allowedUsers.add(userId)
+        bannedUsers.remove(userId)
+        saveProps()
+        sendMessage(chatId, "User added: $userId.\nAllowed users: $allowedUsers\nBanned users: $bannedUsers")
     }
 
-    private fun handleRemoveUserCommand(chatId: Long, userIdRaw: String) {
-        allowedUsers.remove(userIdRaw.toLong())
-        saveAllowedUsers(allowedUsers)
-        sendMessage(chatId, "User removed: $userIdRaw.\nAll users: $allowedUsers")
+    private fun handleRemoveUserCommand(chatId: Long, userId: Long) {
+        allowedUsers.remove(userId)
+        bannedUsers.add(userId)
+        saveProps()
+        sendMessage(chatId, "User banned: $userId.\nAllowed users: $allowedUsers\nBanned users: $bannedUsers")
     }
 
     private fun handleHelpCommand(chatId: Long, isAdmin: Boolean) {
@@ -262,11 +284,23 @@ class MediaExtTelegramBot constructor(config: BotConfig) : TelegramLongPollingBo
                 |  /addUser user_id - add user
                 |  /delUser user_id - remove user
                 |  /listUsers - show allowed users
+                |  /toggleAnon - (dis)allow anon users
                 |  /kill - kill me :(
                 |  /reboot me - reboot system!⚠️
+                |
+                |  Anon is allowed: ${writeConfig.allowAnon}
             """.trimMargin())
         } else {
-            sendMarkdownMessage(chatId, "*Please, send me some url*")
+            sendMarkdownMessage(chatId, """*Please, send me some twitter or direct media url*
+                | `twitter_url @` - Media and caption from tweet
+                | `twitter_url My own caption` - Media from tweet with custom caption
+                |
+                | Examples:
+                |   `https://twitter.com/ziggush/status/1086543849605001216`
+                |   `https://foo.bar/i/image.jpeg`
+                |   `https://twitter.com/ziggush/status/1086543849605001216 Your caption here`
+                |   `https://dump.video/i/7I75fT.mp4 LOL!`
+            """.trimMargin())
         }
     }
 
@@ -421,6 +455,7 @@ class MediaExtTelegramBot constructor(config: BotConfig) : TelegramLongPollingBo
             }
             sendMessage.chatId = chatId!!.toString()
             sendMessage.text = message
+            sendMessage.disableWebPagePreview()
 
             applyKeyboard(sendMessage)
 
@@ -445,8 +480,9 @@ class MediaExtTelegramBot constructor(config: BotConfig) : TelegramLongPollingBo
         replyKeyboardMarkup.keyboard = keyboard
     }
 
-    private fun loadAllowedUsers(): Set<Long> {
-        var file = File(PROPS_DIR, ALLOWED_LIST)
+
+    private fun loadIds(fileName: String): Set<Long> {
+        var file = File(PROPS_DIR, fileName)
 
         return if (file.exists()) {
             file.readLines(Charsets.UTF_8)
@@ -458,18 +494,19 @@ class MediaExtTelegramBot constructor(config: BotConfig) : TelegramLongPollingBo
         }
     }
 
-    private fun saveAllowedUsers(users: Set<Long>) {
+    private fun saveProps() {
         if (!PROPS_DIR.exists()) {
             PROPS_DIR.mkdirs()
         }
 
-        var file = File(PROPS_DIR, ALLOWED_LIST)
-        file.writeText(users.joinToString(System.lineSeparator()), Charsets.UTF_8)
+        writeConfig.allowedUsersIds = allowedUsers.toList()
+        writeConfig.bannedUsersIds = bannedUsers.toList()
+
+        writeConfig.save(PROPS_FILE.canonicalPath)
     }
 
     companion object {
         private const val UNKNOWN_COMMAND = "⚠️Unknown command⚠"
-        private const val ALLOWED_LIST = "allowedUsers.txt"
         private const val TEXT_MESSAGE_MAX_LENGTH = 4096
     }
 }
