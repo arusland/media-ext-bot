@@ -45,9 +45,10 @@
     ignore_errors: yes
 
   - name: Copy jar-file
-    file:
-      remote_src: /tmp/media-ext-bot/target/media-ext-bot-1.0-jar-with-dependencies.jar
+    copy:
+      src: /tmp/media-ext-bot/target/media-ext-bot-1.0-jar-with-dependencies.jar
       dest: /home/media-ext-bot/dist/media-ext-bot.jar
+      remote_src: yes
       force: yes
 
   - name: Runnning application
