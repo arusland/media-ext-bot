@@ -68,7 +68,7 @@ class MediaExtTelegramBot constructor(config: BotConfig) : TelegramLongPollingBo
                     try {
                         sendMarkdownMessage(chatId, "⚠️*Sorry, this bot only for his owner :)*️")
 
-                        sendAlertToAdmin(update)
+                        sendAlertToAdmin(update, false)
                     } catch (e: TelegramApiException) {
                         e.printStackTrace()
                         log.error(e.message, e)
@@ -80,7 +80,7 @@ class MediaExtTelegramBot constructor(config: BotConfig) : TelegramLongPollingBo
 
             try {
                 if (!isAdmin) {
-                    sendAlertToAdmin(update)
+                    sendAlertToAdmin(update, true)
                 }
 
                 if (update.message.hasText()) {
@@ -127,11 +127,11 @@ class MediaExtTelegramBot constructor(config: BotConfig) : TelegramLongPollingBo
         return ""
     }
 
-    private fun sendAlertToAdmin(update: Update) {
+    private fun sendAlertToAdmin(update: Update, allowed: Boolean) {
         val message = update.message
         val user = message.from
         val text = cleanMessage(message.text)
-        val msg = """*Message from guest:* ` user: ${user.userName} (${user.firstName} ${user.lastName}),
+        val msg = """*Message from guest ($allowed):* ` user: ${user.userName} (${user.firstName} ${user.lastName}),
             | userId: ${user.id},  message: ${text}`""".trimMargin()
         sendMarkdownMessage(adminChatId, msg)
     }
