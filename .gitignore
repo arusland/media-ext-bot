@@ -6,4 +6,4 @@ logs
 dist/application.properties
 dist/*.jar
 dist/logs
-deploy.sh
+secvars.sh
