@@ -17,6 +17,8 @@ class SendToCommand(userId: Long, private val sendTo: List<SendToChat>, bot: Use
 
             if (chat != null) {
                 bot.resendRecentMedia(userId, chat.chatId)
+                // TODO: check sending result
+                bot.sendMessageTo(userId, "Message successfully sent")
             }
         }
 
@@ -27,4 +29,6 @@ class SendToCommand(userId: Long, private val sendTo: List<SendToChat>, bot: Use
 
 interface UserCommandApi {
     fun resendRecentMedia(userId: Long, chatId: String)
+
+    fun sendMessageTo(chatId: Long, message: String, markDown: Boolean = false, html: Boolean = false)
 }

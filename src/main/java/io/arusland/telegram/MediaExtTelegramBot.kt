@@ -554,6 +554,10 @@ class MediaExtTelegramBot constructor(config: BotConfig) : TelegramLongPollingBo
         sendMessage(chatId, message, true, false)
     }
 
+    override fun sendMessageTo(chatId: Long, message: String, markDown: Boolean, html: Boolean) {
+        sendMessage(chatId, message, markDown, html)
+    }
+
     private fun sendMessage(chatId: Long, message: String, markDown: Boolean = false, html: Boolean = false) {
         if (message.length > TEXT_MESSAGE_MAX_LENGTH) {
             val part1 = message.substring(0, TEXT_MESSAGE_MAX_LENGTH)
