@@ -6,4 +6,6 @@ logs
 dist/application.properties
 dist/*.jar
 dist/logs
+dist/globalConfig.json
 secvars.sh
+globalConfig.json
