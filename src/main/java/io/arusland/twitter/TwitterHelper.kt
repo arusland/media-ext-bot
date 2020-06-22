@@ -79,7 +79,7 @@ class TwitterHelper(private val tempDir: File, private val ffmpegPath: File, pri
         val range = topic["display_text_range"] as List<Int>
         log.info("!!! range: {}", range)
         val endIndex = fullText.lastIndexOf("https://t.co")
-        val text = fullText.substring(range[0], Math.max(range[1] + 1, endIndex))
+        val text = fullText.substring(range[0], if (endIndex > 0) endIndex else range[1])
         log.info("!!!! text: {}<<<", text)
 
         val entities = topic["entities"] as Map<String, Any>?
@@ -259,7 +259,7 @@ class TwitterHelper(private val tempDir: File, private val ffmpegPath: File, pri
         private val initJsUrlPattern = Pattern.compile("src=\\\"(http.+init.+\\.js)\\\"")
         private val mainJsUrlPattern = Pattern.compile("src=\\\"(http.+/main.+\\.js)\\\"")
         private val bearerTokenPattern = Pattern.compile("t.a=\\\"(A[^\\\"]+)\\\"")
-        private val bearerTokenPattern2 = Pattern.compile("c=\\\"(A[^\\\"]+)\\\"")
+        private val bearerTokenPattern2 = Pattern.compile("Web-12.+\\w=\\\"(A[^\\\"]+)\\\"")
         private val tweetIdPattern = Pattern.compile("status/(\\d+)")
         private val objectMapper = ObjectMapper()
 

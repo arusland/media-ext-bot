@@ -24,6 +24,7 @@ import java.net.MalformedURLException
 import java.net.URL
 import java.util.*
 import java.util.concurrent.ConcurrentHashMap
+import java.util.regex.Pattern
 import kotlin.collections.ArrayList
 
 /**
@@ -104,6 +105,8 @@ class MediaExtTelegramBot constructor(config: BotConfig) : TelegramLongPollingBo
                         handleCommand(cmd, arg, chatId, userId, isAdmin)
                     } else if (command.startsWith("http")) {
                         handleUrl(command, chatId, getLastComment())
+                    } else {
+                        handlePlainText(command, chatId, getLastComment())
                     }
                 } else if (update.message.hasVideo()) {
                     val video = update.message.video
@@ -129,6 +132,18 @@ class MediaExtTelegramBot constructor(config: BotConfig) : TelegramLongPollingBo
                     log.error(e.message, e)
                 }
             }
+        }
+    }
+
+    private fun handlePlainText(command: String, chatId: Long, lastComment: String) {
+        val mc = PATTERN_URL.matcher(command)
+
+        if (mc.find()) {
+            val url = mc.group(1)
+
+            handleUrl(url, chatId, lastComment)
+        } else {
+            sendMessage(chatId, command)
         }
     }
 
@@ -658,5 +673,6 @@ class MediaExtTelegramBot constructor(config: BotConfig) : TelegramLongPollingBo
         private const val MESSAGE_UNKNOWN_COMMAND = "⚠️Unknown command⚠"
         private val MESSAGE_PLEASE_SEND_TO = "Please, select a chat you want to send"
         private const val TEXT_MESSAGE_MAX_LENGTH = 4096
+        private val PATTERN_URL = Pattern.compile("(https*://[^\\s]+)")
     }
 }
