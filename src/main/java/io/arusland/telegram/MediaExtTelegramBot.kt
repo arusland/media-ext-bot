@@ -19,13 +19,10 @@ import org.telegram.telegrambots.meta.api.objects.replykeyboard.ReplyKeyboardMar
 import org.telegram.telegrambots.meta.api.objects.replykeyboard.buttons.KeyboardRow
 import org.telegram.telegrambots.meta.exceptions.TelegramApiException
 import java.io.File
-import java.lang.IllegalStateException
 import java.net.MalformedURLException
 import java.net.URL
-import java.util.*
 import java.util.concurrent.ConcurrentHashMap
 import java.util.regex.Pattern
-import kotlin.collections.ArrayList
 
 /**
  * @author Ruslan Absalyamov
@@ -45,9 +42,6 @@ class MediaExtTelegramBot constructor(config: BotConfig) : TelegramLongPollingBo
     private val userCommands = ConcurrentHashMap<Long, UserCommand>()
     private val userRecentMedia = ConcurrentHashMap<String, UserRecentMedia>()
 
-    private var lastMessage: Message? = null
-    private var lastMessageTime: Date = Date()
-
     init {
         this.twitter = TwitterHelper(File("/tmp"), File(config.ffMpegPath),
                 File(config.ffProbePath))
@@ -64,6 +58,7 @@ class MediaExtTelegramBot constructor(config: BotConfig) : TelegramLongPollingBo
             val chatId = update.message.chatId!!
             val userId = update.message.from.id!!.toLong()
             val isAdmin = adminChatId == userId
+            val userContext = UserContext.get(userId)
 
             if (!isAdmin) {
                 if (writeConfig.allowAnon && !allowedUsers.contains(userId)) {
@@ -104,29 +99,29 @@ class MediaExtTelegramBot constructor(config: BotConfig) : TelegramLongPollingBo
                         val arg = parseArg(command)
                         handleCommand(cmd, arg, chatId, userId, isAdmin)
                     } else if (command.startsWith("http")) {
-                        handleUrl(command, chatId, getLastComment())
+                        handleUrl(command, chatId, userContext.getLastComment())
                     } else {
-                        handlePlainText(command, chatId, getLastComment())
+                        handlePlainText(command, chatId, userContext.getLastComment())
                     }
                 } else if (update.message.hasVideo()) {
                     val video = update.message.video
-                    sendVideo(chatId, video.fileId, getLastComment())
+                    sendVideo(chatId, video.fileId, userContext.getLastComment())
                 } else if (update.message.hasPhoto()) {
                     val maxPhotoId = update.message.photo.mostBig().fileId
-                    sendImagesById(chatId, listOf(maxPhotoId), getLastComment())
+                    sendImagesById(chatId, listOf(maxPhotoId), userContext.getLastComment())
                 } else if (update.message.hasDocument()) {
-                    sendDocument(chatId, update.message.document.fileId, getLastComment())
+                    sendDocument(chatId, update.message.document.fileId, userContext.getLastComment())
                 } else {
                     sendMessage(chatId, MESSAGE_UNKNOWN_COMMAND)
                 }
 
-                lastMessage = update.message
-                lastMessageTime = Date()
+                userContext.setLastMessage(update.message)
             } catch (e: Exception) {
                 e.printStackTrace()
                 log.error(e.message, e)
                 try {
-                    sendMessage(chatId, "ERROR: " + e.message)
+                    sendMessage(chatId, "Error: Something got wrong!")
+                    sendErrorMessageToAdmin(e.message ?: "", update, true)
                 } catch (e1: TelegramApiException) {
                     e1.printStackTrace()
                     log.error(e.message, e)
@@ -147,21 +142,20 @@ class MediaExtTelegramBot constructor(config: BotConfig) : TelegramLongPollingBo
         }
     }
 
-    private fun getLastComment(): String {
-        val lastMessage = lastMessage
-        if ((Date().time - lastMessageTime.time) < 1000 && lastMessage != null) {
-            return if (lastMessage.hasText()) lastMessage.text else lastMessage.caption
-        }
-
-        return ""
-    }
-
     private fun sendAlertToAdmin(update: Update, allowed: Boolean) {
         val message = update.message
         val user = message.from
         val text = cleanMessage(message.text)
         val msg = """*Message from guest ($allowed):* ` user: ${user.userName} (${user.firstName} ${user.lastName}),
             | userId: ${user.id},  message: ${text}`""".trimMargin()
+        sendMarkdownMessage(adminChatId, msg)
+    }
+
+    private fun sendErrorMessageToAdmin(message: String, update: Update, allowed: Boolean) {
+        val message = update.message
+        val user = message.from
+        val msg = """⚠️*Message from guest ($allowed): failed* ` user: ${user.userName} (${user.firstName} ${user.lastName}),
+            | userId: ${user.id},  error: ${message}`""".trimMargin()
         sendMarkdownMessage(adminChatId, msg)
     }
 
