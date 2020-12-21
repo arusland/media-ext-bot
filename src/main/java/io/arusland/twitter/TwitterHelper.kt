@@ -257,7 +257,7 @@ class TwitterHelper(private val tempDir: File, private val ffmpegPath: File, pri
         private val log = LoggerFactory.getLogger(TwitterHelper::class.java)
         private const val USER_AGENT = "Mozilla/5.0 (X11; Ubuntu; Linux x86_64; rv:76.0) Gecko/20100101 Firefox/76.0"
         private val initJsUrlPattern = Pattern.compile("src=\\\"(http.+init.+\\.js)\\\"")
-        private val mainJsUrlPattern = Pattern.compile("src=\\\"(http.+/main.+\\.js)\\\"")
+        private val mainJsUrlPattern = Pattern.compile("src=\\\"(http[^\\\"]+/main.+\\.js)\\\"")
         private val bearerTokenPattern = Pattern.compile("t.a=\\\"(A[^\\\"]+)\\\"")
         private val bearerTokenPattern2 = Pattern.compile("Web-12.+\\w=\\\"(A[^\\\"]+)\\\"")
         private val tweetIdPattern = Pattern.compile("status/(\\d+)")
