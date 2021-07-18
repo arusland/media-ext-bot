@@ -12,7 +12,6 @@ import org.jsoup.Jsoup
 import org.jsoup.nodes.TextNode
 import org.slf4j.LoggerFactory
 import java.io.*
-import java.lang.IllegalStateException
 import java.net.HttpURLConnection
 import java.net.URL
 import java.util.regex.Pattern
@@ -46,8 +45,10 @@ class TwitterHelper(private val tempDir: File, private val ffmpegPath: File, pri
         val tweetId = info.tweetId
 
         try {
-            var config = loadText(URL("https://api.twitter.com/1.1/videos/tweet/config/$tweetId.json"),
-                    headers, false)
+            var config = loadText(
+                URL("https://api.twitter.com/1.1/videos/tweet/config/$tweetId.json"),
+                headers, false
+            )
             val configMap = objectMapper.readValue(config, Map::class.java)
             val track = configMap["track"] as Map<String, String>
             val playbackUrl = URL(track["playbackUrl"])
@@ -77,10 +78,10 @@ class TwitterHelper(private val tempDir: File, private val ffmpegPath: File, pri
         log.info("topic: {}", objectMapper.writeValueAsString(topic))
         val fullText = topic["full_text"] as String
         val range = topic["display_text_range"] as List<Int>
-        log.info("!!! range: {}", range)
+        log.info("got range: {}", range)
         val endIndex = fullText.lastIndexOf("https://t.co")
         val text = fullText.substring(range[0], if (endIndex > 0) endIndex else range[1])
-        log.info("!!!! text: {}<<<", text)
+        log.info("got text: {}<<<", text)
 
         val entities = topic["entities"] as Map<String, Any>?
         val imageUrls = if (entities != null) {
@@ -115,9 +116,10 @@ class TwitterHelper(private val tempDir: File, private val ffmpegPath: File, pri
         val targetLines = IOUtils.readLines(StringReader(m3u8Target))
 
         val tsUrls = targetLines.stream()
-                .filter { p -> p.startsWith("/") }
-                .map { p -> host + p }
-                .toList()
+            .filter { p -> p.startsWith("/") || p.startsWith(MEDIA_HEADER) }
+            .map { p -> cleanUrl(p) }
+            .map { p -> host + p }
+            .toList()
 
         tsUrls.forEach { u -> log.info("ts url: {}", u) }
 
@@ -128,7 +130,7 @@ class TwitterHelper(private val tempDir: File, private val ffmpegPath: File, pri
                 try {
                     val bytes = loadBytes(URL(url))
                     os.write(bytes)
-                    log.info("write " + bytes.size + " bytes")
+                    log.info("write {} bytes from {}", bytes.size, url)
                 } catch (e: IOException) {
                     throw RuntimeException(e)
                 }
@@ -143,19 +145,27 @@ class TwitterHelper(private val tempDir: File, private val ffmpegPath: File, pri
         return outputFile
     }
 
+    private fun cleanUrl(url: String): String {
+        if (url.startsWith(MEDIA_HEADER) && url.endsWith("\"")) {
+            return url.substring(MEDIA_HEADER.length, url.length - 1)
+        }
+
+        return url
+    }
+
     private fun convertFfmpeg(input: File, output: File) {
         val ffmpeg = FFmpeg(ffmpegPath.path)
         val ffprobe = FFprobe(ffprobePath.path)
 
         val builder = FFmpegBuilder()
-                .overrideOutputFiles(true)
-                .setInput(input.path)     // Filename, or a FFmpegProbeResult
-                .addOutput(output.path)   // Filename for the destination
-                .setFormat("mp4")        // Format is inferred from filename, or can be set
-                .setAudioCodec("copy")
-                .setVideoCodec("copy")
-                .setAudioBitStreamFilter("aac_adtstoasc")
-                .done()
+            .overrideOutputFiles(true)
+            .setInput(input.path)     // Filename, or a FFmpegProbeResult
+            .addOutput(output.path)   // Filename for the destination
+            .setFormat("mp4")        // Format is inferred from filename, or can be set
+            .setAudioCodec("copy")
+            .setVideoCodec("copy")
+            .setAudioBitStreamFilter("aac_adtstoasc")
+            .done()
 
         val executor = FFmpegExecutor(ffmpeg, ffprobe)
 
@@ -256,6 +266,7 @@ class TwitterHelper(private val tempDir: File, private val ffmpegPath: File, pri
     companion object {
         private val log = LoggerFactory.getLogger(TwitterHelper::class.java)
         private const val USER_AGENT = "Mozilla/5.0 (X11; Ubuntu; Linux x86_64; rv:76.0) Gecko/20100101 Firefox/76.0"
+        private const val MEDIA_HEADER = "#EXT-X-MAP:URI=\""
         private val initJsUrlPattern = Pattern.compile("src=\\\"(http.+init.+\\.js)\\\"")
         private val mainJsUrlPattern = Pattern.compile("src=\\\"(http[^\\\"]+/main.+\\.js)\\\"")
         private val bearerTokenPattern = Pattern.compile("t.a=\\\"(A[^\\\"]+)\\\"")
