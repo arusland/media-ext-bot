@@ -1,11 +1,8 @@
 package io.arusland.twitter
 
 import com.fasterxml.jackson.databind.ObjectMapper
+import io.arusland.util.FfMpegUtils
 import io.arusland.util.loadBinaryFile
-import net.bramp.ffmpeg.FFmpeg
-import net.bramp.ffmpeg.FFmpegExecutor
-import net.bramp.ffmpeg.FFprobe
-import net.bramp.ffmpeg.builder.FFmpegBuilder
 import org.apache.commons.io.FileUtils
 import org.apache.commons.io.IOUtils
 import org.jsoup.Jsoup
@@ -19,7 +16,11 @@ import kotlin.streams.toList
 
 data class TweetInfo(val bearerToken: String, val tweetId: String, val text: String, val imageUrls: List<String>)
 
-class TwitterHelper(private val tempDir: File, private val ffmpegPath: File, private val ffprobePath: File) {
+class TwitterHelper(
+    private val tempDir: File,
+    private val ffMpegUtils: FfMpegUtils
+) {
+    fun isTwitterUrl(url: URL): Boolean = url.toString().startsWith("https://twitter.com")
 
     fun downloadMediaFrom(tweetUrl: URL): Pair<File?, TweetInfo> {
         val headers = mutableMapOf<String, String>()
@@ -138,7 +139,7 @@ class TwitterHelper(private val tempDir: File, private val ffmpegPath: File, pri
         }
 
         val outputFile = File(tempDir, info.tweetId + ".mp4")
-        convertFfmpeg(fileInput, outputFile)
+        ffMpegUtils.convert(fileInput, outputFile)
 
         FileUtils.deleteQuietly(fileInput)
 
@@ -151,26 +152,6 @@ class TwitterHelper(private val tempDir: File, private val ffmpegPath: File, pri
         }
 
         return url
-    }
-
-    private fun convertFfmpeg(input: File, output: File) {
-        val ffmpeg = FFmpeg(ffmpegPath.path)
-        val ffprobe = FFprobe(ffprobePath.path)
-
-        val builder = FFmpegBuilder()
-            .overrideOutputFiles(true)
-            .setInput(input.path)     // Filename, or a FFmpegProbeResult
-            .addOutput(output.path)   // Filename for the destination
-            .setFormat("mp4")        // Format is inferred from filename, or can be set
-            .setAudioCodec("copy")
-            .setVideoCodec("copy")
-            .setAudioBitStreamFilter("aac_adtstoasc")
-            .done()
-
-        val executor = FFmpegExecutor(ffmpeg, ffprobe)
-
-        // Run a one-pass encode
-        executor.createJob(builder).run()
     }
 
     fun loadInfoNew(tweetUrl: URL): TweetInfo? {

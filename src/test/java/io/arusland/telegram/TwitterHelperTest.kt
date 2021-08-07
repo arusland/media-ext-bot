@@ -1,6 +1,7 @@
 package io.arusland.telegram
 
 import io.arusland.twitter.TwitterHelper
+import io.arusland.util.FfMpegUtils
 import org.junit.jupiter.api.Test
 import java.io.File
 import java.net.URL
@@ -10,8 +11,8 @@ import java.net.URL
  * @since 1.0
  */
 class TwitterHelperTest {
-    val helper = TwitterHelper(File("/tmp"), File("/usr/bin/ffmpeg"),
-            File("/usr/bin/ffprobe"))
+    private val ffmpegUtils = FfMpegUtils("/usr/bin/ffmpeg", "/usr/bin/ffprobe")
+    private val helper = TwitterHelper(File("/tmp"), ffmpegUtils)
 
     @Test
     fun testTest() {

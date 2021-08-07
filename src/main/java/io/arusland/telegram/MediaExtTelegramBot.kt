@@ -1,10 +1,8 @@
 package io.arusland.telegram
 
 import io.arusland.twitter.TwitterHelper
-import io.arusland.util.isFileSupported
-import io.arusland.util.isImage
-import io.arusland.util.isVideo
-import io.arusland.util.loadBinaryFile
+import io.arusland.util.*
+import io.arusland.youtube.YoutubeHelper
 import org.apache.commons.io.FileUtils
 import org.apache.commons.io.FilenameUtils
 import org.apache.commons.lang3.Validate
@@ -32,7 +30,10 @@ class MediaExtTelegramBot constructor(config: BotConfig) : TelegramLongPollingBo
     private val log = LoggerFactory.getLogger(javaClass)
     private val config: BotConfig = Validate.notNull(config, "config")
     private val adminChatId: Long = config.adminId
-    private val twitter: TwitterHelper
+    private val ffmpegUtils = FfMpegUtils(config.ffMpegPath, config.ffProbePath)
+    private val tempDir = File("/tmp")
+    private val twitterHelper: TwitterHelper = TwitterHelper(tempDir, ffmpegUtils)
+    private val youtubeHelper = YoutubeHelper(tempDir, ffmpegUtils)
     private val allowedUsers = mutableSetOf<Long>()
     private val bannedUsers = mutableSetOf<Long>()
     private val PROPS_DIR = File(System.getProperty("user.home"), ".media-ext")
@@ -43,8 +44,6 @@ class MediaExtTelegramBot constructor(config: BotConfig) : TelegramLongPollingBo
     private val userRecentMedia = ConcurrentHashMap<String, UserRecentMedia>()
 
     init {
-        this.twitter = TwitterHelper(File("/tmp"), File(config.ffMpegPath),
-                File(config.ffProbePath))
         log.info(String.format("Media-ext bot started"))
         sendMarkdownMessage(adminChatId, "*Bot started!*")
         allowedUsers.addAll(writeConfig.allowedUsersIds)
@@ -154,15 +153,16 @@ class MediaExtTelegramBot constructor(config: BotConfig) : TelegramLongPollingBo
     private fun sendErrorMessageToAdmin(message: String, update: Update, allowed: Boolean) {
         val message = update.message
         val user = message.from
-        val msg = """⚠️*Message from guest ($allowed): failed* ` user: ${user.userName} (${user.firstName} ${user.lastName}),
+        val msg =
+            """⚠️*Message from guest ($allowed): failed* ` user: ${user.userName} (${user.firstName} ${user.lastName}),
             | userId: ${user.id},  error: ${message}`""".trimMargin()
         sendMarkdownMessage(adminChatId, msg)
     }
 
     private fun cleanMessage(text: String): String {
         return text.replace("`", "")
-                .replace("*", "")
-                .replace("_", "")
+            .replace("*", "")
+            .replace("_", "")
     }
 
     private fun handleUrl(command: String, chatId: Long, lastComment: String) {
@@ -175,13 +175,29 @@ class MediaExtTelegramBot constructor(config: BotConfig) : TelegramLongPollingBo
             sendMarkdownMessage(chatId, "_Please, wait..._")
 
             when {
-                urlRaw.startsWith("https://twitter.com") -> handleTwitterUrl(url, chatId, comment)
+                twitterHelper.isTwitterUrl(url) -> handleTwitterUrl(url, chatId, comment)
+                youtubeHelper.isYoutubeUrl(url) -> handleYoutubeUrl(url, chatId, comment)
                 isFileSupported(urlRaw) -> handleBinaryUrl(url, chatId, comment)
                 else -> sendMessage(chatId, MESSAGE_UNKNOWN_COMMAND)
             }
         } catch (e: MalformedURLException) {
             log.error(e.message, e)
             sendMarkdownMessage(chatId, "⛔*Invalid url*")
+        }
+    }
+
+    private fun handleYoutubeUrl(url: URL, chatId: Long, comment: String) {
+        // TODO: make async
+        val media = youtubeHelper.downloadMediaFrom(url)
+        val file = media.first
+        val info = media.second
+        val finalComment = if (comment == "@" && !info.title.isNullOrEmpty()) info.title else comment
+
+        if (file.exists()) {
+            sendVideo(chatId, file, finalComment)
+            FileUtils.deleteQuietly(file)
+        } else {
+            sendMarkdownMessage(chatId, "⛔*Media not found* \uD83D\uDE1E")
         }
     }
 
@@ -194,7 +210,7 @@ class MediaExtTelegramBot constructor(config: BotConfig) : TelegramLongPollingBo
 
     private fun handleTwitterUrl(url: URL, chatId: Long, comment: String) {
         // TODO: make async
-        val media = twitter.downloadMediaFrom(url)
+        val media = twitterHelper.downloadMediaFrom(url)
         val file = media.first
         val info = media.second
         val finalComment = if (comment == "@" && !info.text.isNullOrEmpty()) info.text else comment
@@ -257,12 +273,18 @@ class MediaExtTelegramBot constructor(config: BotConfig) : TelegramLongPollingBo
         val type = recentMedia.fileIds.first().fileType
 
         when (type) {
-            MediaType.Photo -> sendImagesById(chatId, recentMedia.fileIds.map { it.fileId },
-                    recentMedia.caption, updateRecent = false)
-            MediaType.Video -> sendVideo(chatId, recentMedia.fileIds.first().fileId,
-                    recentMedia.caption, updateRecent = false)
-            MediaType.Document -> sendDocument(chatId, recentMedia.fileIds.first().fileId,
-                    recentMedia.caption, updateRecent = false)
+            MediaType.Photo -> sendImagesById(
+                chatId, recentMedia.fileIds.map { it.fileId },
+                recentMedia.caption, updateRecent = false
+            )
+            MediaType.Video -> sendVideo(
+                chatId, recentMedia.fileIds.first().fileId,
+                recentMedia.caption, updateRecent = false
+            )
+            MediaType.Document -> sendDocument(
+                chatId, recentMedia.fileIds.first().fileId,
+                recentMedia.caption, updateRecent = false
+            )
         }
     }
 
@@ -292,7 +314,8 @@ class MediaExtTelegramBot constructor(config: BotConfig) : TelegramLongPollingBo
 
     private fun handleHelpCommand(chatId: Long, isAdmin: Boolean) {
         if (isAdmin) {
-            sendMessage(chatId, """Please, send me some url!
+            sendMessage(
+                chatId, """Please, send me some url!
                 |Or command:
                 |  /addUser user_id - add user
                 |  /delUser user_id - remove user
@@ -302,9 +325,11 @@ class MediaExtTelegramBot constructor(config: BotConfig) : TelegramLongPollingBo
                 |  /reboot me - reboot system!⚠️
                 |
                 |  Anon is allowed: ${writeConfig.allowAnon}
-            """.trimMargin())
+            """.trimMargin()
+            )
         } else {
-            sendMarkdownMessage(chatId, """*Please, send me some twitter or direct media url*
+            sendMarkdownMessage(
+                chatId, """*Please, send me some twitter or direct media url*
                 | `twitter_url @` - Media and caption from tweet
                 | `twitter_url My own caption` - Media from tweet with custom caption
                 |
@@ -313,7 +338,8 @@ class MediaExtTelegramBot constructor(config: BotConfig) : TelegramLongPollingBo
                 |   `https://foo.bar/i/image.jpeg`
                 |   `https://twitter.com/ziggush/status/1086543849605001216 Your caption here`
                 |   `https://dump.video/i/7I75fT.mp4 LOL!`
-            """.trimMargin())
+            """.trimMargin()
+            )
         }
     }
 
@@ -345,8 +371,14 @@ class MediaExtTelegramBot constructor(config: BotConfig) : TelegramLongPollingBo
             val msg = execute(doc)
 
             if (updateRecent) {
-                userRecentMedia[chatId] = UserRecentMedia(listOf(MediaFile(fileId = msg.document.fileId,
-                        fileType = MediaType.Document)), caption = comment)
+                userRecentMedia[chatId] = UserRecentMedia(
+                    listOf(
+                        MediaFile(
+                            fileId = msg.document.fileId,
+                            fileType = MediaType.Document
+                        )
+                    ), caption = comment
+                )
             }
         } catch (e: TelegramApiException) {
             log.error(e.message, e)
@@ -371,8 +403,14 @@ class MediaExtTelegramBot constructor(config: BotConfig) : TelegramLongPollingBo
             val msg = execute(doc)
 
             if (updateRecent) {
-                userRecentMedia[chatId] = UserRecentMedia(listOf(MediaFile(fileId = msg.document.fileId,
-                        fileType = MediaType.Document)), caption = comment)
+                userRecentMedia[chatId] = UserRecentMedia(
+                    listOf(
+                        MediaFile(
+                            fileId = msg.document.fileId,
+                            fileType = MediaType.Document
+                        )
+                    ), caption = comment
+                )
             }
         } catch (e: TelegramApiException) {
             log.error(e.message, e)
@@ -397,8 +435,14 @@ class MediaExtTelegramBot constructor(config: BotConfig) : TelegramLongPollingBo
             execute(video)
 
             if (updateRecent) {
-                userRecentMedia[chatId] = UserRecentMedia(listOf(MediaFile(fileId = fileId,
-                        fileType = MediaType.Video)), caption = comment)
+                userRecentMedia[chatId] = UserRecentMedia(
+                    listOf(
+                        MediaFile(
+                            fileId = fileId,
+                            fileType = MediaType.Video
+                        )
+                    ), caption = comment
+                )
             }
         } catch (e: TelegramApiException) {
             log.error(e.message, e)
@@ -423,8 +467,14 @@ class MediaExtTelegramBot constructor(config: BotConfig) : TelegramLongPollingBo
             val msg = execute(video)
 
             if (updateRecent) {
-                userRecentMedia[chatId] = UserRecentMedia(listOf(MediaFile(fileId = msg.video.fileId,
-                        fileType = MediaType.Video)), caption = comment)
+                userRecentMedia[chatId] = UserRecentMedia(
+                    listOf(
+                        MediaFile(
+                            fileId = msg.video.fileId,
+                            fileType = MediaType.Video
+                        )
+                    ), caption = comment
+                )
             }
         } catch (e: TelegramApiException) {
             log.error(e.message, e)
@@ -450,8 +500,10 @@ class MediaExtTelegramBot constructor(config: BotConfig) : TelegramLongPollingBo
 
             if (updateRecent) {
                 userRecentMedia[chatId] = UserRecentMedia(filesIds.map {
-                    MediaFile(fileId = it,
-                            fileType = MediaType.Photo)
+                    MediaFile(
+                        fileId = it,
+                        fileType = MediaType.Photo
+                    )
                 }, caption = comment)
             }
         } catch (e: TelegramApiException) {
@@ -483,8 +535,10 @@ class MediaExtTelegramBot constructor(config: BotConfig) : TelegramLongPollingBo
 
             if (updateRecent) {
                 userRecentMedia[chatId] = UserRecentMedia(msgs.map {
-                    MediaFile(fileId = it.photo.mostBig().fileId,
-                            fileType = MediaType.Photo)
+                    MediaFile(
+                        fileId = it.photo.mostBig().fileId,
+                        fileType = MediaType.Photo
+                    )
                 }, caption = comment)
             }
         } catch (e: TelegramApiException) {
@@ -510,8 +564,14 @@ class MediaExtTelegramBot constructor(config: BotConfig) : TelegramLongPollingBo
             val msg = execute(image)
 
             if (updateRecent) {
-                userRecentMedia[chatId] = UserRecentMedia(listOf(MediaFile(fileId = msg.photo.mostBig().fileId,
-                        fileType = MediaType.Photo)), caption = comment)
+                userRecentMedia[chatId] = UserRecentMedia(
+                    listOf(
+                        MediaFile(
+                            fileId = msg.photo.mostBig().fileId,
+                            fileType = MediaType.Photo
+                        )
+                    ), caption = comment
+                )
             }
         } catch (e: TelegramApiException) {
             log.error(e.message, e)
@@ -630,9 +690,9 @@ class MediaExtTelegramBot constructor(config: BotConfig) : TelegramLongPollingBo
 
         return if (file.exists()) {
             file.readLines(Charsets.UTF_8)
-                    .filter { it.isNotBlank() }
-                    .map { it.toLong() }
-                    .toSet()
+                .filter { it.isNotBlank() }
+                .map { it.toLong() }
+                .toSet()
         } else {
             emptySet()
         }
@@ -661,7 +721,7 @@ class MediaExtTelegramBot constructor(config: BotConfig) : TelegramLongPollingBo
         Document
     }
 
-    fun List<PhotoSize>.mostBig(): PhotoSize = this.maxBy { it.height * it.width }!!
+    fun List<PhotoSize>.mostBig(): PhotoSize = this.maxByOrNull { it.height * it.width }!!
 
     companion object {
         private const val MESSAGE_UNKNOWN_COMMAND = "⚠️Unknown command⚠"
