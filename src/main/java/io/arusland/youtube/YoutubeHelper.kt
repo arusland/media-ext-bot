@@ -47,6 +47,7 @@ class YoutubeHelper(private val tempDir: File, private val ffMpegUtils: FfMpegUt
         }
 
         if (fileRaw.exists()) {
+            // TODO: do not convert until you needed
             log.debug("Normalizing video {} from url {}...", fileRaw, url)
             val fileResult = File(tempDir, "${UUID.randomUUID()}.mp4")
             ffMpegUtils.convert(fileRaw, fileResult, videoCodec = "libx264")
