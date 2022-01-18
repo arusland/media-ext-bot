@@ -9,6 +9,7 @@ import org.apache.commons.lang3.Validate
 import org.slf4j.LoggerFactory
 import org.telegram.telegrambots.bots.TelegramLongPollingBot
 import org.telegram.telegrambots.meta.api.methods.send.*
+import org.telegram.telegrambots.meta.api.objects.InputFile
 import org.telegram.telegrambots.meta.api.objects.Message
 import org.telegram.telegrambots.meta.api.objects.PhotoSize
 import org.telegram.telegrambots.meta.api.objects.Update
@@ -360,7 +361,7 @@ class MediaExtTelegramBot constructor(config: BotConfig) : TelegramLongPollingBo
     private fun sendDocument(chatId: String, file: File, comment: String, updateRecent: Boolean) {
         val doc = SendDocument()
         doc.chatId = chatId
-        doc.setDocument(file)
+        doc.setDocument(InputFile(file))
 
         if (comment.isNotBlank()) {
             doc.caption = comment
@@ -392,7 +393,7 @@ class MediaExtTelegramBot constructor(config: BotConfig) : TelegramLongPollingBo
     private fun sendDocument(chatId: String, fileId: String, comment: String, updateRecent: Boolean) {
         val doc = SendDocument()
         doc.chatId = chatId
-        doc.setDocument(fileId)
+        doc.setDocument(InputFile(fileId))
 
         if (comment.isNotBlank()) {
             doc.caption = comment
@@ -424,7 +425,7 @@ class MediaExtTelegramBot constructor(config: BotConfig) : TelegramLongPollingBo
     private fun sendVideo(chatId: String, fileId: String, comment: String, updateRecent: Boolean) {
         val video = SendVideo()
         video.chatId = chatId
-        video.setVideo(fileId)
+        video.setVideo(InputFile(fileId))
 
         if (comment.isNotBlank()) {
             video.caption = comment
@@ -456,7 +457,7 @@ class MediaExtTelegramBot constructor(config: BotConfig) : TelegramLongPollingBo
     private fun sendVideo(chatId: String, file: File, comment: String, updateRecent: Boolean) {
         val video = SendVideo()
         video.chatId = chatId
-        video.setVideo(file)
+        video.setVideo(InputFile(file))
 
         if (comment.isNotBlank()) {
             video.caption = comment
@@ -488,10 +489,10 @@ class MediaExtTelegramBot constructor(config: BotConfig) : TelegramLongPollingBo
     private fun sendImagesById(chatId: String, filesIds: List<String>, comment: String, updateRecent: Boolean) {
         val doc = SendMediaGroup()
         doc.chatId = chatId
-        doc.media = filesIds.map { imageIds -> InputMediaPhoto().setMedia(imageIds) }
+        doc.medias = filesIds.map { imageId -> InputMediaPhoto().apply { media = imageId }}
 
         if (comment.isNotBlank()) {
-            doc.media.first().caption = comment
+            doc.medias.first().caption = comment
         }
 
         try {
@@ -523,10 +524,10 @@ class MediaExtTelegramBot constructor(config: BotConfig) : TelegramLongPollingBo
     private fun sendImages(chatId: String, files: List<File>, comment: String, updateRecent: Boolean) {
         val doc = SendMediaGroup()
         doc.chatId = chatId
-        doc.media = files.map { file -> InputMediaPhoto().setMedia(file, file.name) }
+        doc.medias = files.map { file -> InputMediaPhoto().apply { setMedia(file, file.name) }}
 
         if (comment.isNotBlank()) {
-            doc.media.first().caption = comment
+            doc.medias.first().caption = comment
         }
 
         try {
@@ -553,7 +554,7 @@ class MediaExtTelegramBot constructor(config: BotConfig) : TelegramLongPollingBo
     private fun sendImage(chatId: String, file: File, comment: String, updateRecent: Boolean) {
         val image = SendPhoto()
         image.chatId = chatId
-        image.setPhoto(file)
+        image.setPhoto(InputFile(file))
 
         if (comment.isNotBlank()) {
             image.caption = comment

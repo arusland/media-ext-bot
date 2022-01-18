@@ -28,6 +28,7 @@ class TwitterHelper(
             val info = loadInfo(tweetUrl) ?: loadInfoNew(tweetUrl)
             ?: throw IllegalStateException("Tweet parsing failed")
             headers["authorization"] = "Bearer " + info.bearerToken
+            headers["x-csrf-token"] = "de37e83627ba8e2ae8b1c6aef21977f5"
             val tokenJson = loadText(URL("https://api.twitter.com/1.1/guest/activate.json"), headers, true)
 
             log.info(tokenJson)
@@ -158,6 +159,8 @@ class TwitterHelper(
         log.debug("V2: Loading tweet content by url: {}", tweetUrl)
         val content = loadText(tweetUrl)
 
+        File("main1.html").writeText(content)
+
         val doc = Jsoup.parse(content)
         val elem = doc.selectFirst("p.tweet-text")
         val tweetText = if (elem != null) {
@@ -188,6 +191,8 @@ class TwitterHelper(
             log.info("initJsUrl=$initJsUrl")
 
             val initJsContent = loadText(URL(initJsUrl))
+
+            File("initJsContent.js").writeText(initJsContent)
 
             val mc2 = bearerTokenPattern2.matcher(initJsContent)
 

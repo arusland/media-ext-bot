@@ -2,9 +2,9 @@ package io.arusland.telegram
 
 import org.apache.commons.lang3.StringUtils
 import org.slf4j.LoggerFactory
-import org.telegram.telegrambots.ApiContextInitializer
 import org.telegram.telegrambots.meta.TelegramBotsApi
 import org.telegram.telegrambots.meta.exceptions.TelegramApiException
+import org.telegram.telegrambots.updatesreceivers.DefaultBotSession
 import java.net.Authenticator
 import java.net.PasswordAuthentication
 
@@ -32,8 +32,7 @@ object MainApp {
             Authenticator.setDefault(ProxyAuth(socksUsername, socksPassword))
         }
 
-        ApiContextInitializer.init()
-        val telegramBotsApi = TelegramBotsApi()
+        val telegramBotsApi = TelegramBotsApi(DefaultBotSession::class.java)
         try {
             val config = BotConfig.load("application.properties")
             telegramBotsApi.registerBot(MediaExtTelegramBot(config))
