@@ -20,7 +20,10 @@ import org.telegram.telegrambots.meta.exceptions.TelegramApiException
 import java.io.File
 import java.net.MalformedURLException
 import java.net.URL
+import java.time.Duration
+import java.time.LocalDateTime
 import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.Executors
 import java.util.regex.Pattern
 
 /**
@@ -43,6 +46,8 @@ class MediaExtTelegramBot constructor(config: BotConfig) : TelegramLongPollingBo
     private val globalConfig = GlobalConfig.loadFrom()
     private val userCommands = ConcurrentHashMap<Long, UserCommand>()
     private val userRecentMedia = ConcurrentHashMap<String, UserRecentMedia>()
+    private val lastMediaGroups = ConcurrentHashMap<Long, MutableList<MediaGroup>>()
+    private val executor = Executors.newCachedThreadPool()
 
     init {
         log.info(String.format("Media-ext bot started"))
@@ -52,7 +57,9 @@ class MediaExtTelegramBot constructor(config: BotConfig) : TelegramLongPollingBo
     }
 
     override fun onUpdateReceived(update: Update) {
-        log.info("got message: {}", update)
+        log.info("got message: {}", JsonUtils.toPrettyJson(update))
+
+        clearOldMediaGroups()
 
         if (update.hasMessage()) {
             val chatId = update.message.chatId!!
@@ -108,7 +115,18 @@ class MediaExtTelegramBot constructor(config: BotConfig) : TelegramLongPollingBo
                     sendVideo(chatId, video.fileId, userContext.getLastComment())
                 } else if (update.message.hasPhoto()) {
                     val maxPhotoId = update.message.photo.mostBig().fileId
-                    sendImagesById(chatId, listOf(maxPhotoId), userContext.getLastComment())
+
+                    if (update.message.mediaGroupId.isNotBlank()) {
+                        sendMediaDelayed(
+                            chatId,
+                            update.message.mediaGroupId,
+                            MediaFile(maxPhotoId, MediaType.Photo),
+                            userContext.getLastComment(),
+                            1000
+                        )
+                    } else {
+                        sendImagesById(chatId, listOf(maxPhotoId), userContext.getLastComment())
+                    }
                 } else if (update.message.hasDocument()) {
                     sendDocument(chatId, update.message.document.fileId, userContext.getLastComment())
                 } else {
@@ -126,6 +144,63 @@ class MediaExtTelegramBot constructor(config: BotConfig) : TelegramLongPollingBo
                     e1.printStackTrace()
                     log.error(e.message, e)
                 }
+            }
+        }
+    }
+
+    private fun sendMediaDelayed(chatId: Long, groupId: String, fileId: MediaFile, comment: String, delayMs: Long) {
+        val list = lastMediaGroups.computeIfAbsent(chatId) { mutableListOf() }
+
+        synchronized(list) {
+            val group = list.find { it.groupId == groupId } ?: MediaGroup(groupId = groupId)
+
+            val newGroup = group.copy(
+                fileIds = group.fileIds.toMutableList().apply { add(fileId) },
+                caption = group.caption.ifBlank { comment },
+                updateTime = LocalDateTime.now(),
+                sent = false
+            )
+
+            list.remove(group)
+            list.add(newGroup)
+        }
+
+        sendMediaDelayed(chatId, groupId, list, delayMs)
+    }
+
+    private fun sendMediaDelayed(
+        chatId: Long,
+        groupId: String,
+        list: MutableList<MediaGroup>,
+        delayMs: Long,
+    ) {
+        executor.submit {
+            Thread.sleep(delayMs)
+
+            synchronized(list) {
+                val group = list.find { it.groupId == groupId }
+
+                if (group != null) {
+                    val nextTime = group.updateTime.plusNanos(Duration.ofMillis(delayMs).toNanos())
+
+                    if (nextTime.isBefore(LocalDateTime.now())) {
+                        if (!group.sent) {
+                            list.remove(group)
+                            list.add(group.copy(sent = true))
+                            sendImagesById(chatId, group.fileIds.map { it.fileId }, group.caption)
+                        }
+                    } else {
+                        sendMediaDelayed(chatId, groupId, list, delayMs)
+                    }
+                }
+            }
+        }
+    }
+
+    private fun clearOldMediaGroups() {
+        for ((_, groups) in lastMediaGroups) {
+            synchronized(groups) {
+                groups.removeIf { it.updateTime.plusMinutes(MEDIA_GROUP_DELETE_TIME).isBefore(LocalDateTime.now()) }
             }
         }
     }
@@ -495,7 +570,7 @@ class MediaExtTelegramBot constructor(config: BotConfig) : TelegramLongPollingBo
 
         val doc = SendMediaGroup()
         doc.chatId = chatId
-        doc.medias = filesIds.map { imageId -> InputMediaPhoto().apply { media = imageId }}
+        doc.medias = filesIds.map { imageId -> InputMediaPhoto().apply { media = imageId } }
 
         if (comment.isNotBlank()) {
             doc.medias.first().caption = comment
@@ -532,10 +607,14 @@ class MediaExtTelegramBot constructor(config: BotConfig) : TelegramLongPollingBo
             execute(doc)
 
             if (updateRecent) {
-                userRecentMedia[chatId] = UserRecentMedia(listOf(MediaFile(
-                    fileId = fileId,
-                    fileType = MediaType.Photo
-                )), caption = comment)
+                userRecentMedia[chatId] = UserRecentMedia(
+                    listOf(
+                        MediaFile(
+                            fileId = fileId,
+                            fileType = MediaType.Photo
+                        )
+                    ), caption = comment
+                )
             }
         } catch (e: TelegramApiException) {
             throw IllegalStateException("sendImageById failed: " + e.message, e)
@@ -555,7 +634,7 @@ class MediaExtTelegramBot constructor(config: BotConfig) : TelegramLongPollingBo
     private fun sendImages(chatId: String, files: List<File>, comment: String, updateRecent: Boolean) {
         val doc = SendMediaGroup()
         doc.chatId = chatId
-        doc.medias = files.map { file -> InputMediaPhoto().apply { setMedia(file, file.name) }}
+        doc.medias = files.map { file -> InputMediaPhoto().apply { setMedia(file, file.name) } }
 
         if (comment.isNotBlank()) {
             doc.medias.first().caption = comment
@@ -743,6 +822,14 @@ class MediaExtTelegramBot constructor(config: BotConfig) : TelegramLongPollingBo
 
     data class UserRecentMedia(val fileIds: List<MediaFile>, val caption: String)
 
+    data class MediaGroup(
+        val groupId: String,
+        val fileIds: List<MediaFile> = emptyList(),
+        val caption: String = "",
+        val updateTime: LocalDateTime = LocalDateTime.now(),
+        val sent: Boolean = false
+    )
+
     data class MediaFile(val fileId: String, val fileType: MediaType)
 
     enum class MediaType {
@@ -760,5 +847,6 @@ class MediaExtTelegramBot constructor(config: BotConfig) : TelegramLongPollingBo
         private val MESSAGE_PLEASE_SEND_TO = "Please, select a chat you want to send"
         private const val TEXT_MESSAGE_MAX_LENGTH = 4096
         private val PATTERN_URL = Pattern.compile("(https*://[^\\s]+)")
+        private const val MEDIA_GROUP_DELETE_TIME: Long = 60 // in minutes
     }
 }
