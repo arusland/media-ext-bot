@@ -151,12 +151,13 @@ class MediaExtTelegramBot constructor(config: BotConfig) : TelegramLongPollingBo
         sendMarkdownMessage(adminChatId, msg)
     }
 
-    private fun sendErrorMessageToAdmin(message: String, update: Update, allowed: Boolean) {
+    private fun sendErrorMessageToAdmin(errorMessage: String, update: Update, allowed: Boolean) {
         val message = update.message
         val user = message.from
         val msg =
             """⚠️*Message from guest ($allowed): failed* ` user: ${user.userName} (${user.firstName} ${user.lastName}),
-            | userId: ${user.id},  error: ${message}`""".trimMargin()
+            | userId: ${user.id},  error: $errorMessage
+            | message: $message`""".trimMargin()
         sendMarkdownMessage(adminChatId, msg)
     }
 
@@ -414,7 +415,7 @@ class MediaExtTelegramBot constructor(config: BotConfig) : TelegramLongPollingBo
                 )
             }
         } catch (e: TelegramApiException) {
-            log.error(e.message, e)
+            throw IllegalStateException("sendDocument failed: " + e.message, e)
         }
     }
 
@@ -446,7 +447,7 @@ class MediaExtTelegramBot constructor(config: BotConfig) : TelegramLongPollingBo
                 )
             }
         } catch (e: TelegramApiException) {
-            log.error(e.message, e)
+            throw IllegalStateException("sendVideo failed: " + e.message, e)
         }
     }
 
@@ -478,7 +479,7 @@ class MediaExtTelegramBot constructor(config: BotConfig) : TelegramLongPollingBo
                 )
             }
         } catch (e: TelegramApiException) {
-            log.error(e.message, e)
+            throw IllegalStateException("sendVideo failed: " + e.message, e)
         }
     }
 
@@ -487,6 +488,11 @@ class MediaExtTelegramBot constructor(config: BotConfig) : TelegramLongPollingBo
     }
 
     private fun sendImagesById(chatId: String, filesIds: List<String>, comment: String, updateRecent: Boolean) {
+        if (filesIds.size == 1) {
+            sendImageById(chatId, filesIds.first(), comment, updateRecent)
+            return
+        }
+
         val doc = SendMediaGroup()
         doc.chatId = chatId
         doc.medias = filesIds.map { imageId -> InputMediaPhoto().apply { media = imageId }}
@@ -508,9 +514,34 @@ class MediaExtTelegramBot constructor(config: BotConfig) : TelegramLongPollingBo
                 }, caption = comment)
             }
         } catch (e: TelegramApiException) {
-            log.error(e.message, e)
+            throw IllegalStateException("sendImagesById failed: " + e.message, e)
         }
     }
+
+    private fun sendImageById(chatId: String, fileId: String, comment: String, updateRecent: Boolean) {
+        val doc = SendPhoto()
+        doc.chatId = chatId
+        doc.photo = InputFile(fileId)
+
+        if (comment.isNotBlank()) {
+            doc.caption = comment
+        }
+
+        try {
+            log.info("Sending photos: $doc")
+            execute(doc)
+
+            if (updateRecent) {
+                userRecentMedia[chatId] = UserRecentMedia(listOf(MediaFile(
+                    fileId = fileId,
+                    fileType = MediaType.Photo
+                )), caption = comment)
+            }
+        } catch (e: TelegramApiException) {
+            throw IllegalStateException("sendImageById failed: " + e.message, e)
+        }
+    }
+
 
     private fun sendImages(chatId: Long, files: List<File>, comment: String, updateRecent: Boolean = true) {
         if (files.size == 1) {
@@ -543,7 +574,7 @@ class MediaExtTelegramBot constructor(config: BotConfig) : TelegramLongPollingBo
                 }, caption = comment)
             }
         } catch (e: TelegramApiException) {
-            log.error(e.message, e)
+            throw IllegalStateException("sendImages failed: " + e.message, e)
         }
     }
 
@@ -575,7 +606,7 @@ class MediaExtTelegramBot constructor(config: BotConfig) : TelegramLongPollingBo
                 )
             }
         } catch (e: TelegramApiException) {
-            log.error(e.message, e)
+            throw IllegalStateException("sendImage failed: " + e.message, e)
         }
     }
 
