@@ -12,7 +12,6 @@ import java.io.*
 import java.net.HttpURLConnection
 import java.net.URL
 import java.util.regex.Pattern
-import kotlin.streams.toList
 
 data class TweetInfo(val bearerToken: String, val tweetId: String, val text: String, val imageUrls: List<String>)
 
@@ -27,11 +26,8 @@ class TwitterHelper(
         val info = run {
             val info = loadInfo(tweetUrl) ?: loadInfoNew(tweetUrl)
             ?: throw IllegalStateException("Tweet parsing failed")
-            headers["authorization"] = "Bearer " + info.bearerToken
-            headers["x-csrf-token"] = "de37e83627ba8e2ae8b1c6aef21977f5"
+            headers["authorization"] = "Bearer AAAAAAAAAAAAAAAAAAAAAPYXBAAAAAAACLXUNDekMxqa8h%2F40K4moUkGsoc%3DTYfbDKbT3jJPCEVnMYqilB28NHfOPqkca3qaAxGfsyKCs0wRbw"
             val tokenJson = loadText(URL("https://api.twitter.com/1.1/guest/activate.json"), headers, true)
-
-            log.info(tokenJson)
 
             val tokenMap = objectMapper.readValue(tokenJson, Map::class.java) as Map<String, String>
 
@@ -159,8 +155,6 @@ class TwitterHelper(
         log.debug("V2: Loading tweet content by url: {}", tweetUrl)
         val content = loadText(tweetUrl)
 
-        File("main1.html").writeText(content)
-
         val doc = Jsoup.parse(content)
         val elem = doc.selectFirst("p.tweet-text")
         val tweetText = if (elem != null) {
@@ -191,8 +185,6 @@ class TwitterHelper(
             log.info("initJsUrl=$initJsUrl")
 
             val initJsContent = loadText(URL(initJsUrl))
-
-            File("initJsContent.js").writeText(initJsContent)
 
             val mc2 = bearerTokenPattern2.matcher(initJsContent)
 
