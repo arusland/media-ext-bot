@@ -46,7 +46,7 @@ class MediaExtTelegramBot constructor(config: BotConfig) : TelegramLongPollingBo
     private val globalConfig = GlobalConfig.loadFrom()
     private val userCommands = ConcurrentHashMap<Long, UserCommand>()
     private val userRecentMedia = ConcurrentHashMap<String, UserRecentMedia>()
-    private val lastMediaGroups = ConcurrentHashMap<Long, MutableList<MediaGroup>>()
+    private val lastMediaGroups = ConcurrentHashMap<Long, MediaGroup>()
     private val executor = Executors.newCachedThreadPool()
 
     init {
@@ -58,8 +58,6 @@ class MediaExtTelegramBot constructor(config: BotConfig) : TelegramLongPollingBo
 
     override fun onUpdateReceived(update: Update) {
         log.info("got message: {}", JsonUtils.toPrettyJson(update))
-
-        clearOldMediaGroups()
 
         if (update.hasMessage()) {
             val chatId = update.message.chatId!!
@@ -116,17 +114,12 @@ class MediaExtTelegramBot constructor(config: BotConfig) : TelegramLongPollingBo
                 } else if (update.message.hasPhoto()) {
                     val maxPhotoId = update.message.photo.mostBig().fileId
 
-                    if (update.message.mediaGroupId.isNotBlank()) {
-                        sendMediaDelayed(
-                            chatId,
-                            update.message.mediaGroupId,
-                            MediaFile(maxPhotoId, MediaType.Photo),
-                            userContext.getLastComment(),
-                            1000
-                        )
-                    } else {
-                        sendImagesById(chatId, listOf(maxPhotoId), userContext.getLastComment())
-                    }
+                    sendMediaDelayed(
+                        chatId,
+                        MediaFile(maxPhotoId, MediaType.Photo),
+                        userContext.getLastComment(),
+                        1000
+                    )
                 } else if (update.message.hasDocument()) {
                     sendDocument(chatId, update.message.document.fileId, userContext.getLastComment())
                 } else {
@@ -148,59 +141,41 @@ class MediaExtTelegramBot constructor(config: BotConfig) : TelegramLongPollingBo
         }
     }
 
-    private fun sendMediaDelayed(chatId: Long, groupId: String, fileId: MediaFile, comment: String, delayMs: Long) {
-        val list = lastMediaGroups.computeIfAbsent(chatId) { mutableListOf() }
+    private fun sendMediaDelayed(chatId: Long,
+                                 mediaFile: MediaFile,
+                                 comment: String,
+                                 delayMs: Long) {
+        synchronized(lastMediaGroups) {
+            val group = lastMediaGroups.computeIfAbsent(chatId) { MediaGroup.Empty }
+                .clearIfExpired(MEDIA_GROUP_TIMEOUT)
 
-        synchronized(list) {
-            val group = list.find { it.groupId == groupId } ?: MediaGroup(groupId = groupId)
-
-            val newGroup = group.copy(
-                fileIds = group.fileIds.toMutableList().apply { add(fileId) },
-                caption = group.caption.ifBlank { comment },
-                updateTime = LocalDateTime.now(),
-                sent = false
-            )
-
-            list.remove(group)
-            list.add(newGroup)
+            lastMediaGroups[chatId] = group.withNewMedia(mediaFile, comment)
         }
 
-        sendMediaDelayed(chatId, groupId, list, delayMs)
+        sendMediaDelayed(chatId, delayMs)
     }
 
     private fun sendMediaDelayed(
         chatId: Long,
-        groupId: String,
-        list: MutableList<MediaGroup>,
         delayMs: Long,
     ) {
         executor.submit {
             Thread.sleep(delayMs)
 
-            synchronized(list) {
-                val group = list.find { it.groupId == groupId }
+            synchronized(lastMediaGroups) {
+                val group = lastMediaGroups[chatId]
 
                 if (group != null) {
-                    val nextTime = group.updateTime.plusNanos(Duration.ofMillis(delayMs).toNanos())
-
-                    if (nextTime.isBefore(LocalDateTime.now())) {
+                    if (group.isExpired(delayMs)) {
                         if (!group.sent) {
-                            list.remove(group)
-                            list.add(group.copy(sent = true))
+                            lastMediaGroups[chatId] = group.copy(sent = true)
                             sendImagesById(chatId, group.fileIds.map { it.fileId }, group.caption)
                         }
                     } else {
-                        sendMediaDelayed(chatId, groupId, list, delayMs)
+                        // try again later
+                        sendMediaDelayed(chatId, delayMs)
                     }
                 }
-            }
-        }
-    }
-
-    private fun clearOldMediaGroups() {
-        for ((_, groups) in lastMediaGroups) {
-            synchronized(groups) {
-                groups.removeIf { it.updateTime.plusMinutes(MEDIA_GROUP_DELETE_TIME).isBefore(LocalDateTime.now()) }
             }
         }
     }
@@ -823,12 +798,29 @@ class MediaExtTelegramBot constructor(config: BotConfig) : TelegramLongPollingBo
     data class UserRecentMedia(val fileIds: List<MediaFile>, val caption: String)
 
     data class MediaGroup(
-        val groupId: String,
         val fileIds: List<MediaFile> = emptyList(),
         val caption: String = "",
         val updateTime: LocalDateTime = LocalDateTime.now(),
         val sent: Boolean = false
-    )
+    ) {
+        fun isExpired(timeoutMs: Long): Boolean =
+            isNotEmpty() && updateTime.plusNanos(Duration.ofMillis(timeoutMs).toNanos()).isBefore(LocalDateTime.now());
+
+        fun isNotEmpty(): Boolean = fileIds.isNotEmpty()
+
+        fun withNewMedia(mediaFile: MediaFile, comment: String): MediaGroup = copy(
+            fileIds = fileIds.toMutableList().apply { add(mediaFile) },
+            caption = caption.ifBlank { comment },
+            updateTime = LocalDateTime.now(),
+            sent = false
+        )
+
+        fun clearIfExpired(delayMs: Long): MediaGroup = if (isExpired(delayMs)) Empty else this
+
+        companion object {
+            val Empty = MediaGroup()
+        }
+    }
 
     data class MediaFile(val fileId: String, val fileType: MediaType)
 
@@ -847,6 +839,6 @@ class MediaExtTelegramBot constructor(config: BotConfig) : TelegramLongPollingBo
         private val MESSAGE_PLEASE_SEND_TO = "Please, select a chat you want to send"
         private const val TEXT_MESSAGE_MAX_LENGTH = 4096
         private val PATTERN_URL = Pattern.compile("(https*://[^\\s]+)")
-        private const val MEDIA_GROUP_DELETE_TIME: Long = 60 // in minutes
+        private const val MEDIA_GROUP_TIMEOUT: Long = 5 * 1000L
     }
 }
