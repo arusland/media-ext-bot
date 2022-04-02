@@ -21,6 +21,7 @@ import java.io.File
 import java.net.MalformedURLException
 import java.net.URL
 import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.Executors
 import java.util.regex.Pattern
 
 /**
@@ -43,6 +44,7 @@ class MediaExtTelegramBot constructor(config: BotConfig) : TelegramLongPollingBo
     private val globalConfig = GlobalConfig.loadFrom()
     private val userCommands = ConcurrentHashMap<Long, UserCommand>()
     private val userRecentMedia = ConcurrentHashMap<String, UserRecentMedia>()
+    private val executor = Executors.newCachedThreadPool()
     private val mediaGroupDelayer = MediaGroupDelayer(
         delay = 1000,
         groupingTimeout = 5000
@@ -242,17 +244,18 @@ class MediaExtTelegramBot constructor(config: BotConfig) : TelegramLongPollingBo
     }
 
     private fun handleYoutubeUrl(url: URL, chatId: Long, comment: String) {
-        // TODO: make async
-        val media = youtubeHelper.downloadMediaFrom(url)
-        val file = media.first
-        val info = media.second
-        val finalComment = if (comment == "@" && !info.title.isNullOrEmpty()) info.title else comment
+        executor.submit {
+            val media = youtubeHelper.downloadMediaFrom(url)
+            val file = media.first
+            val info = media.second
+            val finalComment = if (comment == "@" && !info.title.isNullOrEmpty()) info.title else comment
 
-        if (file.exists()) {
-            sendVideo(chatId, file, finalComment)
-            FileUtils.deleteQuietly(file)
-        } else {
-            sendMarkdownMessage(chatId, "⛔*Media not found* \uD83D\uDE1E")
+            if (file.exists()) {
+                sendVideo(chatId, file, finalComment)
+                FileUtils.deleteQuietly(file)
+            } else {
+                sendMarkdownMessage(chatId, "⛔*Media not found* \uD83D\uDE1E")
+            }
         }
     }
 
@@ -264,29 +267,30 @@ class MediaExtTelegramBot constructor(config: BotConfig) : TelegramLongPollingBo
     }
 
     private fun handleTwitterUrl(url: URL, chatId: Long, comment: String) {
-        // TODO: make async
-        val media = twitterHelper.downloadMediaFrom(url)
-        val file = media.first
-        val info = media.second
-        val finalComment = if (comment == "@" && !info.text.isNullOrEmpty()) info.text else comment
+        executor.submit {
+            val media = twitterHelper.downloadMediaFrom(url)
+            val file = media.first
+            val info = media.second
+            val finalComment = if (comment == "@" && info.text.isNotEmpty()) info.text else comment
 
-        if (file != null) {
-            if (file.exists()) {
-                sendVideo(chatId, file, finalComment)
-                FileUtils.deleteQuietly(file)
+            if (file != null) {
+                if (file.exists()) {
+                    sendVideo(chatId, file, finalComment)
+                    FileUtils.deleteQuietly(file)
+                } else {
+                    sendMarkdownMessage(chatId, "⛔*Media not found* \uD83D\uDE1E")
+                }
+            } else if (info.imageUrls.isNotEmpty()) {
+                val files = info.imageUrls.mapIndexed { index, url ->
+                    loadBinaryFile(URL(url), info.tweetId + index.toString(), "jpg")
+                }
+
+                sendImages(chatId, files, finalComment)
+
+                files.forEach { FileUtils.deleteQuietly(it) }
             } else {
                 sendMarkdownMessage(chatId, "⛔*Media not found* \uD83D\uDE1E")
             }
-        } else if (info.imageUrls.isNotEmpty()) {
-            val files = info.imageUrls.mapIndexed { index, url ->
-                loadBinaryFile(URL(url), info.tweetId + index.toString(), "jpg")
-            }
-
-            sendImages(chatId, files, finalComment)
-
-            files.forEach { FileUtils.deleteQuietly(it) }
-        } else {
-            sendMarkdownMessage(chatId, "⛔*Media not found* \uD83D\uDE1E")
         }
     }
 
