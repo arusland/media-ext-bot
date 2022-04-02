@@ -252,7 +252,6 @@ class TwitterHelper(
         private val tweetIdPattern = Pattern.compile("status/(\\d+)")
         private val objectMapper = ObjectMapper()
 
-
         private fun getHost(url: URL): String {
             return url.protocol + "://" + url.host
         }
