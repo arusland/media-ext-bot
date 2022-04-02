@@ -81,7 +81,7 @@ class TwitterHelper(
         val text = fullText.substring(range[0], if (endIndex > 0) endIndex else range[1])
         log.info("got text: {}<<<", text)
 
-        val entities = topic["entities"] as Map<String, Any>?
+        val entities = topic["extended_entities"] as Map<String, Any>?
         val imageUrls = if (entities != null) {
             val media = entities["media"] as List<Map<String, Any>>
             media.map { it["media_url_https"] as String }
