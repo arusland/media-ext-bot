@@ -26,9 +26,26 @@ class SendToCommand(userId: Long, private val sendTo: List<SendToChat>, bot: Use
     }
 }
 
+class EditLastCaptionCommand(userId: Long, bot: UserCommandApi)
+    : UserCommand(userId, bot) {
+    override fun execute(update: Update): Boolean {
+        if (update.message.hasText()) {
+            val newCaption = update.message.text
+
+            if (newCaption.isNotBlank()) {
+                bot.editLastCaption(userId, newCaption)
+            }
+        }
+
+        return false
+    }
+}
+
 
 interface UserCommandApi {
     fun resendRecentMedia(userId: Long, chatId: String)
 
     fun sendMessageTo(chatId: Long, message: String, markDown: Boolean = false, html: Boolean = false)
+
+    fun editLastCaption(userId: Long, newCaption: String)
 }

@@ -15,11 +15,19 @@ data class MediaGroup(
     fun isExpired(timeoutMs: Long): Boolean =
         isNotEmpty() && updateTime.plusNanos(Duration.ofMillis(timeoutMs).toNanos()).isBefore(LocalDateTime.now());
 
-    fun isNotEmpty(): Boolean = fileIds.isNotEmpty()
+    fun isNotEmpty(): Boolean = !isEmpty()
+
+    fun isEmpty(): Boolean = fileIds.isEmpty()
 
     fun withNewMedia(mediaFile: MediaFile, comment: String): MediaGroup = copy(
         fileIds = fileIds.toMutableList().apply { add(mediaFile) },
         caption = caption.ifBlank { comment },
+        updateTime = LocalDateTime.now(),
+        sent = false
+    )
+
+    fun withNewMedias(mediaFiles: List<MediaFile>): MediaGroup = copy(
+        fileIds = fileIds.toMutableList().apply { addAll(mediaFiles) },
         updateTime = LocalDateTime.now(),
         sent = false
     )

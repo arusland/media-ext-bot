@@ -162,6 +162,10 @@ class MediaExtTelegramBot constructor(config: BotConfig) : TelegramLongPollingBo
     }
 
     private fun onMediaGroupSend(group: MediaGroup) {
+        if (group.isEmpty()) {
+            return
+        }
+
         val photosAndVideos = group.fileIds.filter { it.fileType == MediaType.Photo || it.fileType == MediaType.Video }
         val audios = group.fileIds.filter { it.fileType == MediaType.Audio }
         val documents = group.fileIds.filter { it.fileType == MediaType.Document }
@@ -193,7 +197,7 @@ class MediaExtTelegramBot constructor(config: BotConfig) : TelegramLongPollingBo
             handleUrl(url, chatId, lastComment)
         } else {
             sendMessage(chatId, command)
-            mediaGroupDelayer.setCaption(chatId, command)
+            mediaGroupDelayer.setActualCaption(chatId, command)
         }
     }
 
@@ -299,6 +303,8 @@ class MediaExtTelegramBot constructor(config: BotConfig) : TelegramLongPollingBo
             handleHelpCommand(chatId, isAdmin)
         } else if ("sendto" == command) {
             sendMessage(chatId, MESSAGE_PLEASE_SEND_TO)
+        } else if ("edit" == command) {
+            handleEditCommand(chatId, arg)
         } else if (isAdmin) {
             if ("kill" == command) {
                 sendMarkdownMessage(chatId, "*Bye bye*")
@@ -391,6 +397,7 @@ class MediaExtTelegramBot constructor(config: BotConfig) : TelegramLongPollingBo
                 chatId, """*Please, send me some twitter or direct media url*
                 | `twitter_url @` - Media and caption from tweet
                 | `twitter_url My own caption` - Media from tweet with custom caption
+                | `/edit` - Edit caption of last message
                 |
                 | Examples:
                 |   `https://twitter.com/ziggush/status/1086543849605001216`
@@ -399,6 +406,16 @@ class MediaExtTelegramBot constructor(config: BotConfig) : TelegramLongPollingBo
                 |   `https://dump.video/i/7I75fT.mp4 LOL!`
             """.trimMargin()
             )
+        }
+    }
+
+    private fun handleEditCommand(chatId: Long, arg: String) {
+        if (mediaGroupDelayer.hasMedia(chatId)) {
+            sendMessage(chatId, "Please, type new caption:")
+
+            userCommands[chatId] = EditLastCaptionCommand(chatId, this)
+        } else {
+            sendMessage(chatId, "Recent media not found. First send media, then edit caption")
         }
     }
 
@@ -428,17 +445,18 @@ class MediaExtTelegramBot constructor(config: BotConfig) : TelegramLongPollingBo
         try {
             log.info("Sending file: $doc")
             val msg = execute(doc)
+            val mediaFile = MediaFile(
+                fileId = msg.document.fileId,
+                fileType = MediaType.Document
+            )
 
             if (updateRecent) {
                 userRecentMedia[chatId] = UserRecentMedia(
-                    listOf(
-                        MediaFile(
-                            fileId = msg.document.fileId,
-                            fileType = MediaType.Document
-                        )
-                    ), caption = comment
+                    listOf(mediaFile), caption = comment
                 )
             }
+
+            mediaGroupDelayer.createNewGroup(chatId.toLong(), mediaFile)
         } catch (e: TelegramApiException) {
             log.error(e.message, e)
         }
@@ -556,17 +574,17 @@ class MediaExtTelegramBot constructor(config: BotConfig) : TelegramLongPollingBo
         try {
             log.info("Sending file: $video")
             val msg = execute(video)
+            val mediaFile = MediaFile(
+                fileId = msg.video.fileId,
+                fileType = MediaType.Video
+            )
 
             if (updateRecent) {
                 userRecentMedia[chatId] = UserRecentMedia(
-                    listOf(
-                        MediaFile(
-                            fileId = msg.video.fileId,
-                            fileType = MediaType.Video
-                        )
-                    ), caption = comment
+                    listOf(mediaFile), caption = comment
                 )
             }
+            mediaGroupDelayer.createNewGroup(chatId.toLong(), mediaFile)
         } catch (e: TelegramApiException) {
             throw IllegalStateException("sendVideo failed: " + e.message, e)
         }
@@ -703,15 +721,18 @@ class MediaExtTelegramBot constructor(config: BotConfig) : TelegramLongPollingBo
         try {
             log.info("Sending photos: $doc")
             val msgs = execute(doc)
+            val mediaFiles = msgs.map {
+                MediaFile(
+                    fileId = it.photo.mostBig().fileId,
+                    fileType = MediaType.Photo
+                )
+            }
 
             if (updateRecent) {
-                userRecentMedia[chatId] = UserRecentMedia(msgs.map {
-                    MediaFile(
-                        fileId = it.photo.mostBig().fileId,
-                        fileType = MediaType.Photo
-                    )
-                }, caption = comment)
+                userRecentMedia[chatId] = UserRecentMedia(mediaFiles, caption = comment)
             }
+
+            mediaGroupDelayer.createNewGroup(chatId.toLong(), *mediaFiles.toTypedArray())
         } catch (e: TelegramApiException) {
             throw IllegalStateException("sendImages failed: " + e.message, e)
         }
@@ -724,7 +745,7 @@ class MediaExtTelegramBot constructor(config: BotConfig) : TelegramLongPollingBo
     private fun sendImage(chatId: String, file: File, comment: String, updateRecent: Boolean) {
         val image = SendPhoto()
         image.chatId = chatId
-        image.setPhoto(InputFile(file))
+        image.photo = InputFile(file)
 
         if (comment.isNotBlank()) {
             image.caption = comment
@@ -733,17 +754,15 @@ class MediaExtTelegramBot constructor(config: BotConfig) : TelegramLongPollingBo
         try {
             log.info("Sending photo: $image")
             val msg = execute(image)
+            val mediaFile = MediaFile(
+                fileId = msg.photo.mostBig().fileId,
+                fileType = MediaType.Photo
+            )
 
             if (updateRecent) {
-                userRecentMedia[chatId] = UserRecentMedia(
-                    listOf(
-                        MediaFile(
-                            fileId = msg.photo.mostBig().fileId,
-                            fileType = MediaType.Photo
-                        )
-                    ), caption = comment
-                )
+                userRecentMedia[chatId] = UserRecentMedia(listOf(mediaFile), caption = comment)
             }
+            mediaGroupDelayer.createNewGroup(chatId.toLong(), mediaFile)
         } catch (e: TelegramApiException) {
             throw IllegalStateException("sendImage failed: " + e.message, e)
         }
@@ -798,6 +817,10 @@ class MediaExtTelegramBot constructor(config: BotConfig) : TelegramLongPollingBo
         sendMessage(chatId, message, markDown, html)
     }
 
+    override fun editLastCaption(userId: Long, newCaption: String) {
+        mediaGroupDelayer.resendWithNewCaption(userId, newCaption)
+    }
+
     private fun sendMessage(chatId: Long, message: String, markDown: Boolean = false, html: Boolean = false) {
         if (message.length > TEXT_MESSAGE_MAX_LENGTH) {
             val part1 = message.substring(0, TEXT_MESSAGE_MAX_LENGTH)
@@ -845,10 +868,12 @@ class MediaExtTelegramBot constructor(config: BotConfig) : TelegramLongPollingBo
                 userCommands[chatId] = SendToCommand(chatId, userConfig.sendTo, this)
             } else {
                 keyboardFirstRow.add("/help")
+                keyboardFirstRow.add("/edit")
                 keyboardFirstRow.add("/sendto")
             }
         } else {
             keyboardFirstRow.add("/help")
+            keyboardFirstRow.add("/edit")
         }
 
         keyboard.add(keyboardFirstRow)

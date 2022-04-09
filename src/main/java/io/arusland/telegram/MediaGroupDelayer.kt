@@ -11,27 +11,39 @@ class MediaGroupDelayer(
     private val lastMediaGroups = ConcurrentHashMap<Long, MediaGroup>()
     private val executor = Executors.newCachedThreadPool()
 
+    fun hasMedia(chatId: Long): Boolean {
+        return lastMediaGroups[chatId]?.isNotEmpty() ?: false
+    }
+
+    fun createNewGroup(chatId: Long, vararg mediaFiles: MediaFile) {
+        lastMediaGroups[chatId] = MediaGroup.of(chatId).withNewMedias(mediaFiles.toList())
+    }
+
     fun sendMediaDelayed(
         chatId: Long,
         mediaFile: MediaFile,
         comment: String
     ) {
         synchronized(lastMediaGroups) {
-            val group = getGroup(chatId)
+            val group = getActualGroup(chatId)
 
             lastMediaGroups[chatId] = group.withNewMedia(mediaFile, comment)
         }
 
-        sendMediaDelayedAsync(chatId)
+        sendMediaDelayedAsync(chatId, delay)
     }
 
     /**
      * Returns actual group
      */
-    private fun getGroup(chatId: Long) = lastMediaGroups.computeIfAbsent(chatId) { MediaGroup.of(chatId) }
-        .clearIfExpired(groupingTimeout)
+    private fun getActualGroup(chatId: Long) = getRecentGroup(chatId).clearIfExpired(groupingTimeout)
 
-    private fun sendMediaDelayedAsync(chatId: Long) {
+    /**
+     * Returns last group. Probably expired
+     */
+    private fun getRecentGroup(chatId: Long) = lastMediaGroups.computeIfAbsent(chatId) { MediaGroup.of(chatId) }
+
+    private fun sendMediaDelayedAsync(chatId: Long, delay: Long) {
         executor.submit {
             Thread.sleep(delay)
 
@@ -46,18 +58,28 @@ class MediaGroupDelayer(
                         }
                     } else {
                         // try again later
-                        sendMediaDelayedAsync(chatId)
+                        sendMediaDelayedAsync(chatId, delay)
                     }
                 }
             }
         }
     }
 
-    fun setCaption(chatId: Long, caption: String) {
+    fun setActualCaption(chatId: Long, caption: String) {
         synchronized(lastMediaGroups) {
-            lastMediaGroups[chatId] = getGroup(chatId).withNewCaption(caption)
+            lastMediaGroups[chatId] = getActualGroup(chatId).withNewCaption(caption)
         }
 
-        sendMediaDelayedAsync(chatId)
+        sendMediaDelayedAsync(chatId, delay)
+    }
+
+    fun resendWithNewCaption(chatId: Long, caption: String) {
+        if (lastMediaGroups.containsKey(chatId)) {
+            synchronized(lastMediaGroups) {
+                lastMediaGroups[chatId] = getRecentGroup(chatId).withNewCaption(caption)
+            }
+
+            sendMediaDelayedAsync(chatId, 0L)
+        }
     }
 }
