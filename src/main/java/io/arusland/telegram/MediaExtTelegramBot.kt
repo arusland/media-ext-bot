@@ -18,6 +18,7 @@ import org.telegram.telegrambots.meta.api.objects.replykeyboard.ReplyKeyboardMar
 import org.telegram.telegrambots.meta.api.objects.replykeyboard.buttons.KeyboardRow
 import org.telegram.telegrambots.meta.exceptions.TelegramApiException
 import java.io.File
+import java.lang.reflect.Method
 import java.net.MalformedURLException
 import java.net.URL
 import java.util.concurrent.ConcurrentHashMap
@@ -204,11 +205,25 @@ class MediaExtTelegramBot constructor(config: BotConfig) : TelegramLongPollingBo
     private fun sendAlertToAdmin(update: Update, allowed: Boolean) {
         val message = update.message
         val user = message.from
-        val text = cleanMessage(message.text)
+        val text = cleanMessage(message.text ?: "")
         val msg = """*Message from guest ($allowed):* ` user: ${user.userName} (${user.firstName} ${user.lastName}),
-            | userId: ${user.id},  message: ${text}`""".trimMargin()
+            | userId: ${user.id}, brief: ${briefInfo(message)},
+            | message: ${text}`""".trimMargin()
         sendMarkdownMessage(adminChatId, msg)
     }
+
+    private fun briefInfo(message: Message): String {
+        return message.javaClass.methods
+            .filter { it.isHasMethod() }
+            .map { method -> method.name to method.invoke(message) }
+            .filter { it.second != null }
+            .filter { (it.second as? Boolean) ?: false }
+            .map { it.first.substring(3) }
+            .joinToString(", ")
+    }
+
+    private fun Method.isHasMethod() =
+        parameterCount == 0 && name.startsWith("has") && "boolean" == returnType.name
 
     private fun sendErrorMessageToAdmin(errorMessage: String, update: Update, allowed: Boolean) {
         val message = update.message
