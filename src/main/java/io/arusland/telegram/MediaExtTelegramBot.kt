@@ -149,13 +149,11 @@ class MediaExtTelegramBot constructor(config: BotConfig) : TelegramLongPollingBo
 
                 userContext.setLastMessage(update.message)
             } catch (e: Exception) {
-                e.printStackTrace()
                 log.error(e.message, e)
                 try {
                     sendMessage(chatId, "Error: Something got wrong!")
                     sendErrorMessageToAdmin(e.message ?: "", update, true)
                 } catch (e1: TelegramApiException) {
-                    e1.printStackTrace()
                     log.error(e.message, e)
                 }
             }
@@ -235,6 +233,11 @@ class MediaExtTelegramBot constructor(config: BotConfig) : TelegramLongPollingBo
         sendMarkdownMessage(adminChatId, msg)
     }
 
+    private fun sendErrorMessageToAdmin(errorMessage: String) {
+        val msg = "⚠️Error: `$errorMessage`"
+        sendMarkdownMessage(adminChatId, msg)
+    }
+
     private fun cleanMessage(text: String): String {
         return text.replace("`", "")
             .replace("*", "")
@@ -251,9 +254,9 @@ class MediaExtTelegramBot constructor(config: BotConfig) : TelegramLongPollingBo
             sendMarkdownMessage(chatId, "_Please, wait..._")
 
             when {
-                twitterHelper.isTwitterUrl(url) -> handleTwitterUrl(url, chatId, comment)
-                youtubeHelper.isYoutubeUrl(url) -> handleYoutubeUrl(url, chatId, comment)
-                isFileSupported(urlRaw) -> handleBinaryUrl(url, chatId, comment)
+                twitterHelper.isTwitterUrl(url) -> handleTwitterUrlAsync(url, chatId, comment)
+                youtubeHelper.isYoutubeUrl(url) -> handleYoutubeUrlAsync(url, chatId, comment)
+                isFileSupported(urlRaw) -> handleBinaryUrlAsync(url, chatId, comment)
                 else -> sendMessage(chatId, MESSAGE_UNKNOWN_COMMAND)
             }
         } catch (e: MalformedURLException) {
@@ -262,54 +265,80 @@ class MediaExtTelegramBot constructor(config: BotConfig) : TelegramLongPollingBo
         }
     }
 
-    private fun handleYoutubeUrl(url: URL, chatId: Long, comment: String) {
-        executor.submit {
-            val media = youtubeHelper.downloadMediaFrom(url)
-            val file = media.first
-            val info = media.second
-            val finalComment = if (comment == "@" && !info.title.isNullOrEmpty()) info.title else comment
+    private fun handleYoutubeUrlAsync(url: URL, chatId: Long, comment: String) {
+        runCommandAsync(chatId) {
+            handleYoutubeUrl(url, comment, chatId)
+        }
+    }
 
+    private fun handleYoutubeUrl(url: URL, comment: String, chatId: Long) {
+        val media = youtubeHelper.downloadMediaFrom(url)
+        val file = media.first
+        val info = media.second
+        val finalComment = if (comment == "@" && !info.title.isNullOrEmpty()) info.title else comment
+
+        if (file.exists()) {
+            sendVideo(chatId, file, finalComment)
+            FileUtils.deleteQuietly(file)
+        } else {
+            sendMarkdownMessage(chatId, "⛔*Media not found* \uD83D\uDE1E")
+        }
+    }
+
+    private fun handleBinaryUrlAsync(url: URL, chatId: Long, comment: String) {
+        runCommandAsync(chatId) {
+            val ext = FilenameUtils.getExtension(url.path)
+            val file = loadBinaryFile(url, System.nanoTime().toString(), ext)
+            sendFile(chatId, file, comment)
+            FileUtils.deleteQuietly(file)
+        }
+    }
+
+    private fun handleTwitterUrlAsync(url: URL, chatId: Long, comment: String) {
+        runCommandAsync(chatId) {
+            handleTwitterUrl(url, comment, chatId)
+        }
+    }
+
+    private fun runCommandAsync(chatId: Long, function: () -> Unit) {
+        executor.submit {
+            try {
+                function()
+            } catch (e: Exception) {
+                log.error(e.message, e)
+                try {
+                    sendMessage(chatId, "Error: Something got wrong!")
+                    sendErrorMessageToAdmin(e.message ?: "")
+                } catch (e1: TelegramApiException) {
+                    log.error(e.message, e)
+                }
+            }
+        }
+    }
+
+    private fun handleTwitterUrl(url: URL, comment: String, chatId: Long) {
+        val media = twitterHelper.downloadMediaFrom(url)
+        val file = media.first
+        val info = media.second
+        val finalComment = if (comment == "@" && info.text.isNotEmpty()) info.text else comment
+
+        if (file != null) {
             if (file.exists()) {
                 sendVideo(chatId, file, finalComment)
                 FileUtils.deleteQuietly(file)
             } else {
                 sendMarkdownMessage(chatId, "⛔*Media not found* \uD83D\uDE1E")
             }
-        }
-    }
-
-    private fun handleBinaryUrl(url: URL, chatId: Long, comment: String) {
-        val ext = FilenameUtils.getExtension(url.path)
-        val file = loadBinaryFile(url, System.nanoTime().toString(), ext)
-        sendFile(chatId, file, comment)
-        FileUtils.deleteQuietly(file)
-    }
-
-    private fun handleTwitterUrl(url: URL, chatId: Long, comment: String) {
-        executor.submit {
-            val media = twitterHelper.downloadMediaFrom(url)
-            val file = media.first
-            val info = media.second
-            val finalComment = if (comment == "@" && info.text.isNotEmpty()) info.text else comment
-
-            if (file != null) {
-                if (file.exists()) {
-                    sendVideo(chatId, file, finalComment)
-                    FileUtils.deleteQuietly(file)
-                } else {
-                    sendMarkdownMessage(chatId, "⛔*Media not found* \uD83D\uDE1E")
-                }
-            } else if (info.imageUrls.isNotEmpty()) {
-                val files = info.imageUrls.mapIndexed { index, url ->
-                    loadBinaryFile(URL(url), info.tweetId + index.toString(), "jpg")
-                }
-
-                sendImages(chatId, files, finalComment)
-
-                files.forEach { FileUtils.deleteQuietly(it) }
-            } else {
-                sendMarkdownMessage(chatId, "⛔*Media not found* \uD83D\uDE1E")
+        } else if (info.imageUrls.isNotEmpty()) {
+            val files = info.imageUrls.mapIndexed { index, url ->
+                loadBinaryFile(URL(url), info.tweetId + index.toString(), "jpg")
             }
+
+            sendImages(chatId, files, finalComment)
+
+            files.forEach { FileUtils.deleteQuietly(it) }
+        } else {
+            sendMarkdownMessage(chatId, "⛔*Media not found* \uD83D\uDE1E")
         }
     }
 
@@ -395,31 +424,31 @@ class MediaExtTelegramBot constructor(config: BotConfig) : TelegramLongPollingBo
     private fun handleHelpCommand(chatId: Long, isAdmin: Boolean) {
         if (isAdmin) {
             sendMessage(
-                chatId, """Please, send me some url!
-                |Or command:
-                |  /addUser user_id - add user
-                |  /delUser user_id - remove user
-                |  /listUsers - show allowed users
-                |  /toggleAnon - (dis)allow anon users
-                |  /kill - kill me :(
-                |  /reboot me - reboot system!⚠️
-                |
-                |  Anon is allowed: ${writeConfig.allowAnon}
-            """.trimMargin()
+                chatId, """ Please, send me some url!
+        |Or command :
+        |  /addUser user_id-add user
+        |  /delUser user_id-remove user
+        |  /listUsers-show allowed users
+        |  /toggleAnon-(dis)allow anon users
+        |  /kill-kill me :(
+        |  /reboot me-reboot system!⚠️
+        |
+        |  Anon is allowed: ${ writeConfig.allowAnon }
+        """.trimMargin()
             )
         } else {
             sendMarkdownMessage(
-                chatId, """*Please, send me some twitter or direct media url*
-                | `twitter_url @` - Media and caption from tweet
-                | `twitter_url My own caption` - Media from tweet with custom caption
-                | `/edit` - Edit caption of last message
-                |
-                | Examples:
-                |   `https://twitter.com/ziggush/status/1086543849605001216`
-                |   `https://foo.bar/i/image.jpeg`
-                |   `https://twitter.com/ziggush/status/1086543849605001216 Your caption here`
-                |   `https://dump.video/i/7I75fT.mp4 LOL!`
-            """.trimMargin()
+                chatId, """ * Please, send me some twitter or direct media url*
+        | `twitter_url @` - Media and caption from tweet
+        | `twitter_url My own caption` - Media from tweet with custom caption
+        | `/edit` - Edit caption of last message
+        |
+        | Examples:
+        |   `https://twitter.com/ziggush/status/1086543849605001216`
+        |   `https://foo.bar/i/image.jpeg`
+        |   `https://twitter.com/ziggush/status/1086543849605001216 Your caption here`
+        |   `https://dump.video/i/7I75fT.mp4 LOL!`
+        """.trimMargin()
             )
         }
     }
