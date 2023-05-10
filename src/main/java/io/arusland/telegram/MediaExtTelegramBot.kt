@@ -464,6 +464,8 @@ class MediaExtTelegramBot constructor(config: BotConfig) : TelegramLongPollingBo
     }
 
     private fun sendFile(chatId: Long, file: File, comment: String) {
+        log.debug("Sending file of size {}, file: {}", file.length(), file)
+
         if (file.isVideo()) {
             sendVideo(chatId, file, comment)
         } else if (file.isImage()) {

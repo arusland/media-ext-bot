@@ -8,8 +8,10 @@ import java.net.URL
 fun loadBinaryFile(playbackUrl: URL, fileId: String, ext: String): File {
     val outputFile = File(tempDir, "$fileId.$ext")
 
-    FileOutputStream(outputFile).use { os ->
-        os.write(IOUtils.toByteArray(playbackUrl))
+    playbackUrl.openStream().use { input ->
+        FileOutputStream(outputFile).use { output ->
+            IOUtils.copy(input, output)
+        }
     }
 
     return outputFile
