@@ -9,6 +9,8 @@ import org.jsoup.Jsoup
 import org.jsoup.nodes.TextNode
 import org.slf4j.LoggerFactory
 import java.io.*
+import java.net.CookieHandler
+import java.net.CookieManager
 import java.net.HttpURLConnection
 import java.net.URL
 import java.util.regex.Pattern
@@ -53,10 +55,10 @@ class TwitterHelper(
 
             log.info("playbackUrl=$playbackUrl")
 
-            if (playbackUrl.path.contains(".mp4")) {
-                return loadBinaryFile(playbackUrl, tweetId, "mp4") to info
+            return if (playbackUrl.path.contains(".mp4")) {
+                loadBinaryFile(playbackUrl, tweetId, "mp4") to info
             } else {
-                return loadM3u8Format(playbackUrl, info) to info
+                loadM3u8Format(playbackUrl, info) to info
             }
         } catch (e: Exception) {
             if (e is FileNotFoundException && info.imageUrls.isNotEmpty()) {
@@ -312,5 +314,9 @@ class TwitterHelper(
                 stream?.close()
             }
         }
+    }
+
+    init {
+        CookieHandler.setDefault(CookieManager())
     }
 }
