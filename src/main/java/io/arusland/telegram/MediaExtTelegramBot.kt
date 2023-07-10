@@ -356,7 +356,7 @@ class MediaExtTelegramBot constructor(config: BotConfig) : TelegramLongPollingBo
             } else if ("reboot" == command) {
                 if ("me" == arg) {
                     sendMarkdownMessage(chatId, "*Bye bye*")
-                    Runtime.getRuntime().exec("reboot")
+                    handleReboot()
                 } else {
                     sendMarkdownMessage(chatId, "Proper command: /reboot me")
                 }
@@ -419,6 +419,16 @@ class MediaExtTelegramBot constructor(config: BotConfig) : TelegramLongPollingBo
         bannedUsers.add(userId)
         saveProps()
         sendMessage(chatId, "User banned: $userId.\nAllowed users: $allowedUsers\nBanned users: $bannedUsers")
+    }
+
+    private fun handleReboot() {
+        try {
+            Runtime.getRuntime().exec("reboot")
+        } catch (e: Exception) {
+            log.error("Failed to reboot: ${e.message}", e)
+            // try alternative way
+            Runtime.getRuntime().exec("/sbin/reboot")
+        }
     }
 
     private fun handleHelpCommand(chatId: Long, isAdmin: Boolean) {
