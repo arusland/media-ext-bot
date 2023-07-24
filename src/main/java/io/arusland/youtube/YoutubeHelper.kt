@@ -130,7 +130,7 @@ class YoutubeHelper(private val tempDir: File, private val ffMpegUtils: FfMpegUt
     }
 
     companion object {
-        private val executablePath = "youtube-dl"
+        private val executablePath = "yt-dlp"
         private val log = LoggerFactory.getLogger(YoutubeHelper::class.java)
     }
 }
