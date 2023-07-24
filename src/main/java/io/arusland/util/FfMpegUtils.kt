@@ -21,7 +21,7 @@ class FfMpegUtils(private val ffMpegPath: String, private val ffProbePath: Strin
             .setFormat("mp4")        // Format is inferred from filename, or can be set
             .setAudioCodec(audioCodec)
             .setVideoCodec(videoCodec)
-            .setAudioBitStreamFilter("aac_adtstoasc")
+          //  .setAudioBitStreamFilter("aac")
             .done()
 
         val executor = FFmpegExecutor(ffmpeg, ffprobe)
