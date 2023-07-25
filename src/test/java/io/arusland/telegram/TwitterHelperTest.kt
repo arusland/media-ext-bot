@@ -2,6 +2,7 @@ package io.arusland.telegram
 
 import io.arusland.twitter.TwitterHelper
 import io.arusland.util.FfMpegUtils
+import io.arusland.youtube.YoutubeHelper
 import org.junit.jupiter.api.Test
 import java.io.File
 import java.net.URL
@@ -12,7 +13,8 @@ import java.net.URL
  */
 class TwitterHelperTest {
     private val ffmpegUtils = FfMpegUtils("/usr/bin/ffmpeg", "/usr/bin/ffprobe")
-    private val helper = TwitterHelper(File("/tmp"), ffmpegUtils)
+    private val youtubeHelper = YoutubeHelper(File("/tmp/test"), ffmpegUtils)
+    private val helper = TwitterHelper(File("/tmp"), ffmpegUtils, youtubeHelper)
 
     @Test
     fun testTest() {

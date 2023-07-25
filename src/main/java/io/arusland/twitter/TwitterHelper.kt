@@ -3,6 +3,7 @@ package io.arusland.twitter
 import com.fasterxml.jackson.databind.ObjectMapper
 import io.arusland.util.FfMpegUtils
 import io.arusland.util.loadBinaryFile
+import io.arusland.youtube.YoutubeHelper
 import org.apache.commons.io.FileUtils
 import org.apache.commons.io.IOUtils
 import org.jsoup.Jsoup
@@ -19,16 +20,47 @@ data class TweetInfo(val bearerToken: String, val tweetId: String, val text: Str
 
 class TwitterHelper(
     private val tempDir: File,
-    private val ffMpegUtils: FfMpegUtils
+    private val ffMpegUtils: FfMpegUtils,
+    private val youtubeHelper: YoutubeHelper
 ) {
     fun isTwitterUrl(url: URL): Boolean = url.toString().startsWith("https://twitter.com")
 
     fun downloadMediaFrom(tweetUrl: URL): Pair<File?, TweetInfo> {
+        return downloadMediaFromOld(tweetUrl)
+    }
+
+    private fun getTopicInfo(timelineJson: String, info: TweetInfo): TweetInfo {
+        val map = objectMapper.readValue(timelineJson, Map::class.java)
+
+        val globalObjects = map["globalObjects"] as Map<String, Any>
+        val tweets = globalObjects["tweets"] as Map<String, Any>
+        val topic = tweets[info.tweetId] as Map<String, Any>
+        log.info("topic: {}", objectMapper.writeValueAsString(topic))
+        val fullText = topic["full_text"] as String
+        val range = topic["display_text_range"] as List<Int>
+        log.info("got range: {}", range)
+        val endIndex = fullText.lastIndexOf("https://t.co")
+        val text = fullText.substring(range[0], if (endIndex > 0) endIndex else range[1])
+        log.info("got text: {}<<<", text)
+
+        val entities = topic["extended_entities"] as Map<String, Any>?
+        val imageUrls = if (entities != null) {
+            val media = entities["media"] as List<Map<String, Any>>
+            media.map { it["media_url_https"] as String }
+        } else {
+            emptyList()
+        }
+
+        return info.copy(text = text, imageUrls = imageUrls)
+    }
+
+    private fun downloadMediaFromOld(tweetUrl: URL): Pair<File?, TweetInfo> {
         val headers = mutableMapOf<String, String>()
         val info = run {
             val info = loadInfo(tweetUrl) ?: loadInfoNew(tweetUrl)
             ?: throw IllegalStateException("Tweet parsing failed")
-            headers["authorization"] = "Bearer AAAAAAAAAAAAAAAAAAAAAPYXBAAAAAAACLXUNDekMxqa8h%2F40K4moUkGsoc%3DTYfbDKbT3jJPCEVnMYqilB28NHfOPqkca3qaAxGfsyKCs0wRbw"
+            headers["authorization"] =
+                "Bearer AAAAAAAAAAAAAAAAAAAAAPYXBAAAAAAACLXUNDekMxqa8h%2F40K4moUkGsoc%3DTYfbDKbT3jJPCEVnMYqilB28NHfOPqkca3qaAxGfsyKCs0wRbw"
             val tokenJson = loadText(URL("https://api.twitter.com/1.1/guest/activate.json"), headers, true)
 
             val tokenMap = objectMapper.readValue(tokenJson, Map::class.java) as Map<String, String>
@@ -67,31 +99,6 @@ class TwitterHelper(
 
             throw e
         }
-    }
-
-    private fun getTopicInfo(timelineJson: String, info: TweetInfo): TweetInfo {
-        val map = objectMapper.readValue(timelineJson, Map::class.java)
-
-        val globalObjects = map["globalObjects"] as Map<String, Any>
-        val tweets = globalObjects["tweets"] as Map<String, Any>
-        val topic = tweets[info.tweetId] as Map<String, Any>
-        log.info("topic: {}", objectMapper.writeValueAsString(topic))
-        val fullText = topic["full_text"] as String
-        val range = topic["display_text_range"] as List<Int>
-        log.info("got range: {}", range)
-        val endIndex = fullText.lastIndexOf("https://t.co")
-        val text = fullText.substring(range[0], if (endIndex > 0) endIndex else range[1])
-        log.info("got text: {}<<<", text)
-
-        val entities = topic["extended_entities"] as Map<String, Any>?
-        val imageUrls = if (entities != null) {
-            val media = entities["media"] as List<Map<String, Any>>
-            media.map { it["media_url_https"] as String }
-        } else {
-            emptyList()
-        }
-
-        return info.copy(text = text, imageUrls = imageUrls)
     }
 
     private fun makeTimelineUrl(tweetId: String): URL {

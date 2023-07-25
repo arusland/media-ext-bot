@@ -35,8 +35,8 @@ class MediaExtTelegramBot constructor(config: BotConfig) : TelegramLongPollingBo
     private val adminChatId: Long = config.adminId
     private val ffmpegUtils = FfMpegUtils(config.ffMpegPath, config.ffProbePath)
     private val tempDir = File("/tmp")
-    private val twitterHelper: TwitterHelper = TwitterHelper(tempDir, ffmpegUtils)
     private val youtubeHelper = YoutubeHelper(tempDir, ffmpegUtils)
+    private val twitterHelper: TwitterHelper = TwitterHelper(tempDir, ffmpegUtils, youtubeHelper)
     private val allowedUsers = mutableSetOf<Long>()
     private val bannedUsers = mutableSetOf<Long>()
     private val PROPS_DIR = File(System.getProperty("user.home"), ".media-ext")
@@ -320,7 +320,7 @@ class MediaExtTelegramBot constructor(config: BotConfig) : TelegramLongPollingBo
         val media = twitterHelper.downloadMediaFrom(url)
         val file = media.first
         val info = media.second
-        val finalComment = if (comment == "@" && info.text.isNotEmpty()) info.text else comment
+        val finalComment = if (comment == "@" && info.text.isNotEmpty() == true) info.text else comment
 
         if (file != null) {
             if (file.exists()) {
