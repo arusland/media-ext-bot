@@ -26,7 +26,10 @@ class TwitterHelper(
     fun isTwitterUrl(url: URL): Boolean = url.toString().startsWith("https://twitter.com")
 
     fun downloadMediaFrom(tweetUrl: URL): Pair<File?, TweetInfo> {
-        return downloadMediaFromOld(tweetUrl)
+        val info = loadInfo(tweetUrl) ?: loadInfoNew(tweetUrl) ?: throw IllegalStateException("Tweet parsing failed")
+        val file = youtubeHelper.downloadVideo(tweetUrl)
+
+        return file to info
     }
 
     private fun getTopicInfo(timelineJson: String, info: TweetInfo): TweetInfo {
