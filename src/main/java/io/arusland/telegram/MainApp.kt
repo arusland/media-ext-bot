@@ -17,13 +17,6 @@ object MainApp {
 
     @JvmStatic
     fun main(args: Array<String>) {
-        /*
-            System.setProperty("socksProxyHost", "188.166.XXX.XXX")
-            System.setProperty("socksProxyPort", "1080")
-            System.setProperty("java.net.socks.username", "XXX")
-            System.setProperty("java.net.socks.password", "XXX")
-        */
-
         val socksUsername = System.getProperty("java.net.socks.username")
         val socksPassword = System.getProperty("java.net.socks.password")
 

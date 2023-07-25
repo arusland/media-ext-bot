@@ -378,7 +378,6 @@ class MediaExtTelegramBot constructor(config: BotConfig) : TelegramLongPollingBo
 
     override fun resendRecentMedia(userId: Long, chatId: String) {
         val recentMedia = userRecentMedia[userId.toString()] ?: throw IllegalStateException("Recent media not found")
-
         val type = recentMedia.fileIds.first().fileType
 
         when (type) {
@@ -394,6 +393,7 @@ class MediaExtTelegramBot constructor(config: BotConfig) : TelegramLongPollingBo
                 chatId, recentMedia.fileIds.first().fileId,
                 recentMedia.caption, updateRecent = false
             )
+            else -> throw IllegalStateException("Unsupported type: $type")
         }
     }
 
