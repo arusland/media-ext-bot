@@ -257,11 +257,28 @@ class MediaExtTelegramBot constructor(config: BotConfig) : TelegramLongPollingBo
                 twitterHelper.isTwitterUrl(url) -> handleTwitterUrlAsync(url, chatId, comment)
                 youtubeHelper.isYoutubeUrl(url) -> handleYoutubeUrlAsync(url, chatId, comment)
                 isFileSupported(urlRaw) -> handleBinaryUrlAsync(url, chatId, comment)
-                else -> sendMessage(chatId, MESSAGE_UNKNOWN_COMMAND)
+                else -> tryDownloadVideoFromUrlAsync(url, chatId, comment)
             }
         } catch (e: MalformedURLException) {
             log.error(e.message, e)
             sendMarkdownMessage(chatId, "⛔*Invalid url*")
+        }
+    }
+
+    private fun tryDownloadVideoFromUrlAsync(url: URL, chatId: Long, comment: String) {
+        runCommandAsync(chatId) {
+            tryDownloadVideoFromUrl(url, comment, chatId)
+        }
+    }
+
+    private fun tryDownloadVideoFromUrl(url: URL, comment: String, chatId: Long) {
+        val file = youtubeHelper.downloadVideo(url)
+
+        if (file.exists()) {
+            sendVideo(chatId, file, comment)
+            FileUtils.deleteQuietly(file)
+        } else {
+            sendMarkdownMessage(chatId, MESSAGE_MEDIA_NOT_FOUND)
         }
     }
 
@@ -281,7 +298,7 @@ class MediaExtTelegramBot constructor(config: BotConfig) : TelegramLongPollingBo
             sendVideo(chatId, file, finalComment)
             FileUtils.deleteQuietly(file)
         } else {
-            sendMarkdownMessage(chatId, "⛔*Media not found* \uD83D\uDE1E")
+            sendMarkdownMessage(chatId, MESSAGE_MEDIA_NOT_FOUND)
         }
     }
 
@@ -327,7 +344,7 @@ class MediaExtTelegramBot constructor(config: BotConfig) : TelegramLongPollingBo
                 sendVideo(chatId, file, finalComment)
                 FileUtils.deleteQuietly(file)
             } else {
-                sendMarkdownMessage(chatId, "⛔*Media not found* \uD83D\uDE1E")
+                sendMarkdownMessage(chatId, MESSAGE_MEDIA_NOT_FOUND)
             }
         } else if (info.imageUrls.isNotEmpty()) {
             val files = info.imageUrls.mapIndexed { index, url ->
@@ -338,7 +355,7 @@ class MediaExtTelegramBot constructor(config: BotConfig) : TelegramLongPollingBo
 
             files.forEach { FileUtils.deleteQuietly(it) }
         } else {
-            sendMarkdownMessage(chatId, "⛔*Media not found* \uD83D\uDE1E")
+            sendMarkdownMessage(chatId, MESSAGE_MEDIA_NOT_FOUND)
         }
     }
 
@@ -966,6 +983,7 @@ class MediaExtTelegramBot constructor(config: BotConfig) : TelegramLongPollingBo
 
     companion object {
         private const val MESSAGE_UNKNOWN_COMMAND = "⚠️Unknown command⚠"
+        private const val MESSAGE_MEDIA_NOT_FOUND = "⛔*Media not found* \uD83D\uDE1E"
         private val MESSAGE_PLEASE_SEND_TO = "Please, select a chat you want to send"
         private const val TEXT_MESSAGE_MAX_LENGTH = 4096
         private val PATTERN_URL = Pattern.compile("(https*://[^\\s]+)")

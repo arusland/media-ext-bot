@@ -26,7 +26,7 @@ class TwitterHelper(
     fun isTwitterUrl(url: URL): Boolean = url.toString().startsWith("https://twitter.com")
 
     fun downloadMediaFrom(tweetUrl: URL): Pair<File?, TweetInfo> {
-        val info = loadInfo(tweetUrl) ?: loadInfoNew(tweetUrl) ?: throw IllegalStateException("Tweet parsing failed")
+        val info = loadInfoNew(tweetUrl) ?: throw IllegalStateException("Tweet parsing failed")
         val file = youtubeHelper.downloadVideo(tweetUrl)
 
         return file to info
@@ -57,6 +57,7 @@ class TwitterHelper(
         return info.copy(text = text, imageUrls = imageUrls)
     }
 
+    @Deprecated("Not working anymore")
     private fun downloadMediaFromOld(tweetUrl: URL): Pair<File?, TweetInfo> {
         val headers = mutableMapOf<String, String>()
         val info = run {
