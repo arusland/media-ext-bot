@@ -2,6 +2,7 @@ package io.arusland.youtube
 
 import io.arusland.util.FfMpegUtils
 import io.arusland.util.JsonUtils
+import io.arusland.util.isMp4
 import io.arusland.youtube.model.VideoInfo
 import io.arusland.youtube.model.YoutubeRequest
 import io.arusland.youtube.model.YoutubeResponse
@@ -47,7 +48,11 @@ class YoutubeHelper(private val tempDir: File, private val ffMpegUtils: FfMpegUt
         }
 
         if (fileRaw.exists()) {
-            // TODO: do not convert until you needed
+            if (fileRaw.isMp4()) {
+                log.debug("Video is already mp4, skip convert, file: {}, url: {}", fileRaw, url)
+                return fileRaw
+            }
+
             log.debug("Normalizing video {} from url {}...", fileRaw, url)
             val fileResult = File(tempDir, "${UUID.randomUUID()}.mp4")
             ffMpegUtils.convert(fileRaw, fileResult, videoCodec = "libx264")

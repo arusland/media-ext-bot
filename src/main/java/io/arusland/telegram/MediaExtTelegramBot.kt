@@ -254,7 +254,7 @@ class MediaExtTelegramBot constructor(config: BotConfig) : TelegramLongPollingBo
             sendMarkdownMessage(chatId, "_Please, wait..._")
 
             when {
-                twitterHelper.isTwitterUrl(url) -> handleTwitterUrlAsync(url, chatId, comment)
+              //  twitterHelper.isTwitterUrl(url) -> handleTwitterUrlAsync(url, chatId, comment)
                 youtubeHelper.isYoutubeUrl(url) -> handleYoutubeUrlAsync(url, chatId, comment)
                 isFileSupported(urlRaw) -> handleBinaryUrlAsync(url, chatId, comment)
                 else -> tryDownloadVideoFromUrlAsync(url, chatId, comment)
@@ -645,7 +645,7 @@ class MediaExtTelegramBot constructor(config: BotConfig) : TelegramLongPollingBo
         }
 
         try {
-            log.info("Sending file: $video")
+            log.info("Sending file: {}", video)
             val msg = execute(video)
             val mediaFile = MediaFile(
                 fileId = msg.video.fileId,
