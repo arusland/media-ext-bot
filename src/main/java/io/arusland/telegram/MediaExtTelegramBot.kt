@@ -9,6 +9,7 @@ import org.apache.commons.lang3.Validate
 import org.slf4j.LoggerFactory
 import org.telegram.telegrambots.bots.TelegramLongPollingBot
 import org.telegram.telegrambots.meta.api.methods.send.*
+import org.telegram.telegrambots.meta.api.methods.updatingmessages.EditMessageText
 import org.telegram.telegrambots.meta.api.objects.InputFile
 import org.telegram.telegrambots.meta.api.objects.Message
 import org.telegram.telegrambots.meta.api.objects.PhotoSize
@@ -251,13 +252,13 @@ class MediaExtTelegramBot constructor(config: BotConfig) : TelegramLongPollingBo
             val urlRaw = if (index > 0) command.substring(0, index) else command
             val url = URL(urlRaw)
 
-            sendMarkdownMessage(chatId, "_Please, wait..._")
+            val message = sendMarkdownMessage(chatId, "_Please, wait..._")
 
             when {
-              //  twitterHelper.isTwitterUrl(url) -> handleTwitterUrlAsync(url, chatId, comment)
+                //  twitterHelper.isTwitterUrl(url) -> handleTwitterUrlAsync(url, chatId, comment)
                 youtubeHelper.isYoutubeUrl(url) -> handleYoutubeUrlAsync(url, chatId, comment)
                 isFileSupported(urlRaw) -> handleBinaryUrlAsync(url, chatId, comment)
-                else -> tryDownloadVideoFromUrlAsync(url, chatId, comment)
+                else -> tryDownloadVideoFromUrlAsync(url, chatId, comment, message.messageId)
             }
         } catch (e: MalformedURLException) {
             log.error(e.message, e)
@@ -265,14 +266,17 @@ class MediaExtTelegramBot constructor(config: BotConfig) : TelegramLongPollingBo
         }
     }
 
-    private fun tryDownloadVideoFromUrlAsync(url: URL, chatId: Long, comment: String) {
+    private fun tryDownloadVideoFromUrlAsync(url: URL, chatId: Long, comment: String, messageId: Int) {
         runCommandAsync(chatId) {
-            tryDownloadVideoFromUrl(url, comment, chatId)
+            tryDownloadVideoFromUrl(url, comment, chatId, messageId)
         }
     }
 
-    private fun tryDownloadVideoFromUrl(url: URL, comment: String, chatId: Long) {
-        val file = youtubeHelper.downloadVideo(url)
+    private fun tryDownloadVideoFromUrl(url: URL, comment: String, chatId: Long, messageId: Int) {
+        val file = youtubeHelper.downloadVideo(url) { msg ->
+            // TODO: implement
+            // editMessage(chatId, messageId, "_${msg}_", markDown = true)
+        }
 
         if (file.exists()) {
             sendVideo(chatId, file, comment)
@@ -402,14 +406,17 @@ class MediaExtTelegramBot constructor(config: BotConfig) : TelegramLongPollingBo
                 chatId, recentMedia.fileIds,
                 recentMedia.caption, updateRecent = false
             )
+
             MediaType.Video -> sendVideo(
                 chatId, recentMedia.fileIds.first().fileId,
                 recentMedia.caption, updateRecent = false
             )
+
             MediaType.Document -> sendDocument(
                 chatId, recentMedia.fileIds.first().fileId,
                 recentMedia.caption, updateRecent = false
             )
+
             else -> throw IllegalStateException("Unsupported type: $type")
         }
     }
@@ -878,12 +885,12 @@ class MediaExtTelegramBot constructor(config: BotConfig) : TelegramLongPollingBo
         return config.botToken
     }
 
-    private fun sendHtmlMessage(chatId: Long, message: String) {
-        sendMessage(chatId, message, false, true)
+    private fun sendHtmlMessage(chatId: Long, message: String): Message {
+        return sendMessage(chatId, message, false, true)
     }
 
-    private fun sendMarkdownMessage(chatId: Long, message: String) {
-        sendMessage(chatId, message, true, false)
+    private fun sendMarkdownMessage(chatId: Long, message: String): Message {
+        return sendMessage(chatId, message, true, false)
     }
 
     override fun sendMessageTo(chatId: Long, message: String, markDown: Boolean, html: Boolean) {
@@ -894,12 +901,12 @@ class MediaExtTelegramBot constructor(config: BotConfig) : TelegramLongPollingBo
         mediaGroupDelayer.resendWithNewCaption(userId, newCaption)
     }
 
-    private fun sendMessage(chatId: Long, message: String, markDown: Boolean = false, html: Boolean = false) {
+    private fun sendMessage(chatId: Long, message: String, markDown: Boolean = false, html: Boolean = false): Message {
         if (message.length > TEXT_MESSAGE_MAX_LENGTH) {
             val part1 = message.substring(0, TEXT_MESSAGE_MAX_LENGTH)
             sendMessage(chatId, part1)
             val part2 = message.substring(TEXT_MESSAGE_MAX_LENGTH)
-            sendMessage(chatId, part2)
+            return sendMessage(chatId, part2)
         } else {
             val sendMessage = SendMessage()
 
@@ -916,9 +923,28 @@ class MediaExtTelegramBot constructor(config: BotConfig) : TelegramLongPollingBo
 
             log.info(String.format("send (length: %d): %s", message.length, message))
 
-            execute<Message, SendMessage>(sendMessage)
+            return execute<Message, SendMessage>(sendMessage)
         }
     }
+
+    fun editMessage(chatId: Long, messageId: Int, message: String, markDown: Boolean = false, html: Boolean = false) {
+        val editMessage = EditMessageText()
+
+        if (markDown) {
+            editMessage.enableMarkdown(markDown)
+        } else if (html) {
+            editMessage.enableHtml(html)
+        }
+        editMessage.messageId = messageId
+        editMessage.chatId = chatId.toString()
+        editMessage.text = message
+        editMessage.replyMarkup = null
+
+        log.info(String.format("edit message (length: %d): %s", message.length, message))
+
+        execute(editMessage)
+    }
+
 
     private fun applyKeyboard(sendMessage: SendMessage, chatId: Long) {
         val replyKeyboardMarkup = ReplyKeyboardMarkup()

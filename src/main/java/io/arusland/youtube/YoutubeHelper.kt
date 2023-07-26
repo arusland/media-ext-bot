@@ -28,7 +28,7 @@ class YoutubeHelper(private val tempDir: File, private val ffMpegUtils: FfMpegUt
         return file to info
     }
 
-    fun downloadVideo(url: URL): File {
+    fun downloadVideo(url: URL, status: (String) -> Unit = {}): File {
         log.debug("Download video from {}...", url)
         val fileId = "${UUID.randomUUID()}.tmp"
         val directory = tempDir.absolutePath
@@ -36,6 +36,7 @@ class YoutubeHelper(private val tempDir: File, private val ffMpegUtils: FfMpegUt
         request.setOption("ignore-errors")
         request.setOption("output", fileId)
         request.setOption("retries", 10)
+        status.invoke("Downloading video...")
         val resp = execute(request, null)
         val fileRaw = tempDir.listFiles()!!
             .firstOrNull { it.isFile && it.name.contains(fileId) } ?: File(tempDir, fileId)
@@ -50,8 +51,11 @@ class YoutubeHelper(private val tempDir: File, private val ffMpegUtils: FfMpegUt
         if (fileRaw.exists()) {
             if (fileRaw.isMp4()) {
                 log.debug("Video is already mp4, skip convert, file: {}, url: {}", fileRaw, url)
+                status.invoke("Downloaded video size: ${FileUtils.byteCountToDisplaySize(fileRaw.length())})}")
                 return fileRaw
             }
+
+            status.invoke("Converting video to mp4...")
 
             log.debug("Normalizing video {} from url {}...", fileRaw, url)
             val fileResult = File(tempDir, "${UUID.randomUUID()}.mp4")
@@ -63,6 +67,8 @@ class YoutubeHelper(private val tempDir: File, private val ffMpegUtils: FfMpegUt
                 if (fileResult.exists()) fileResult.length() else 0,
                 url
             )
+
+            status.invoke("Converted video size: ${FileUtils.byteCountToDisplaySize(fileRaw.length())})}")
 
             return fileResult
         }
