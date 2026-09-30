@@ -251,11 +251,12 @@ class MediaExtTelegramBot constructor(config: BotConfig) : TelegramLongPollingBo
             val urlRaw = if (index > 0) command.substring(0, index) else command
             val url = URL(urlRaw)
 
-            val message = sendMarkdownMessage(chatId, "_Please, wait..._")
+            // status message is edited later, and Telegram can't edit messages with a reply keyboard
+            val message = sendMessage(chatId, "_Please, wait..._", markDown = true, keyboard = false)
 
             when {
                 //  twitterHelper.isTwitterUrl(url) -> handleTwitterUrlAsync(url, chatId, comment)
-                youtubeHelper.isYoutubeUrl(url) -> handleYoutubeUrlAsync(url, chatId, comment)
+                youtubeHelper.isYoutubeUrl(url) -> handleYoutubeUrlAsync(url, chatId, comment, message.messageId)
                 isFileSupported(urlRaw) -> handleBinaryUrlAsync(url, chatId, comment)
                 else -> tryDownloadVideoFromUrlAsync(url, chatId, comment, message.messageId)
             }
@@ -272,36 +273,40 @@ class MediaExtTelegramBot constructor(config: BotConfig) : TelegramLongPollingBo
     }
 
     private fun tryDownloadVideoFromUrl(url: URL, comment: String, chatId: Long, messageId: Int) {
-        val file = youtubeHelper.downloadVideo(url) { msg ->
-            // TODO: implement
-            // editMessage(chatId, messageId, "_${msg}_", markDown = true)
-        }
+        val status = createStatusUpdater(chatId, messageId)
+        val file = youtubeHelper.downloadVideo(url, status::update)
 
-        if (file.exists()) {
-            sendVideo(chatId, file, comment)
-            FileUtils.deleteQuietly(file)
-        } else {
-            sendMarkdownMessage(chatId, MESSAGE_MEDIA_NOT_FOUND)
-        }
+        sendDownloadedVideo(chatId, file, comment, status)
     }
 
-    private fun handleYoutubeUrlAsync(url: URL, chatId: Long, comment: String) {
+    private fun handleYoutubeUrlAsync(url: URL, chatId: Long, comment: String, messageId: Int) {
         runCommandAsync(chatId) {
-            handleYoutubeUrl(url, comment, chatId)
+            handleYoutubeUrl(url, comment, chatId, messageId)
         }
     }
 
-    private fun handleYoutubeUrl(url: URL, comment: String, chatId: Long) {
-        val media = youtubeHelper.downloadMediaFrom(url)
+    private fun handleYoutubeUrl(url: URL, comment: String, chatId: Long, messageId: Int) {
+        val status = createStatusUpdater(chatId, messageId)
+        val media = youtubeHelper.downloadMediaFrom(url, status::update)
         val file = media.first
         val info = media.second
         val finalComment = if (comment == "@" && !info.title.isNullOrEmpty()) info.title else comment
 
+        sendDownloadedVideo(chatId, file, finalComment, status)
+    }
+
+    private fun createStatusUpdater(chatId: Long, messageId: Int) =
+        StatusMessageUpdater { text -> editMessage(chatId, messageId, text, markDown = true) }
+
+    private fun sendDownloadedVideo(chatId: Long, file: File, comment: String, status: StatusMessageUpdater) {
         if (file.exists()) {
-            sendVideo(chatId, file, finalComment)
+            val size = FileUtils.byteCountToDisplaySize(file.length())
+            status.show("📤 *Uploading video ($size)...*")
+            sendVideo(chatId, file, comment)
             FileUtils.deleteQuietly(file)
+            status.show("✅ *Done ($size)*")
         } else {
-            sendMarkdownMessage(chatId, MESSAGE_MEDIA_NOT_FOUND)
+            status.show(MESSAGE_MEDIA_NOT_FOUND)
         }
     }
 
@@ -929,7 +934,13 @@ class MediaExtTelegramBot constructor(config: BotConfig) : TelegramLongPollingBo
         mediaGroupDelayer.resendWithNewCaption(userId, newCaption)
     }
 
-    private fun sendMessage(chatId: Long, message: String, markDown: Boolean = false, html: Boolean = false): Message {
+    private fun sendMessage(
+        chatId: Long,
+        message: String,
+        markDown: Boolean = false,
+        html: Boolean = false,
+        keyboard: Boolean = true
+    ): Message {
         if (message.length > TEXT_MESSAGE_MAX_LENGTH) {
             val part1 = message.substring(0, TEXT_MESSAGE_MAX_LENGTH)
             sendMessage(chatId, part1)
@@ -947,7 +958,9 @@ class MediaExtTelegramBot constructor(config: BotConfig) : TelegramLongPollingBo
             sendMessage.text = message
             sendMessage.disableWebPagePreview()
 
-            applyKeyboard(sendMessage, chatId)
+            if (keyboard) {
+                applyKeyboard(sendMessage, chatId)
+            }
 
             log.info(String.format("send (length: %d): %s", message.length, message))
 

@@ -1,7 +1,7 @@
 package io.arusland.telegram
 
 import com.fasterxml.jackson.databind.ObjectMapper
-import com.fasterxml.jackson.module.kotlin.KotlinModule
+import com.fasterxml.jackson.module.kotlin.kotlinModule
 import java.io.File
 
 data class GlobalConfig(val configs: List<GlobalUserConfig>) {
@@ -17,7 +17,7 @@ data class GlobalConfig(val configs: List<GlobalUserConfig>) {
         private val GLOBAL_CONFIG_FILE = File("globalConfig.json")
 
         private val objectMapper = ObjectMapper()
-                .registerModule(KotlinModule())
+                .registerModule(kotlinModule())
 
         fun loadFrom(file: File = GLOBAL_CONFIG_FILE): GlobalConfig {
             if (file.exists()) {

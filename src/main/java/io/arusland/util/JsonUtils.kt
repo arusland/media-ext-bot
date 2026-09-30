@@ -1,10 +1,10 @@
 package io.arusland.util
 
 import com.fasterxml.jackson.databind.ObjectMapper
-import com.fasterxml.jackson.module.kotlin.KotlinModule
+import com.fasterxml.jackson.module.kotlin.kotlinModule
 
 object JsonUtils {
-    private val objectMapper = ObjectMapper().registerModule(KotlinModule())
+    private val objectMapper = ObjectMapper().registerModule(kotlinModule())
 
     fun <T> parse(content: String, clazz: Class<T>): T = objectMapper.readValue(content, clazz)
 
