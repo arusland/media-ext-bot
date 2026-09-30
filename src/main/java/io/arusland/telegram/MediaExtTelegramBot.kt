@@ -2,6 +2,7 @@ package io.arusland.telegram
 
 import io.arusland.util.*
 import io.arusland.youtube.YoutubeHelper
+import io.arusland.youtube.model.DownloadStatus
 import org.apache.commons.io.FileUtils
 import org.apache.commons.io.FilenameUtils
 import org.apache.commons.lang3.Validate
@@ -345,6 +346,8 @@ class MediaExtTelegramBot constructor(config: BotConfig) : TelegramLongPollingBo
             handleEditCommand(chatId, arg)
         } else if ("makegif" == command) {
             handleMakeGifCommand(chatId)
+        } else if ("mp3" == command) {
+            handleMp3Command(chatId)
         } else if (isAdmin) {
             if ("kill" == command) {
                 sendMarkdownMessage(chatId, "*Bye bye*")
@@ -452,6 +455,7 @@ class MediaExtTelegramBot constructor(config: BotConfig) : TelegramLongPollingBo
         | `twitter_url My own caption` - Media from tweet with custom caption
         | `/edit` - Edit caption of last message
         | `/makegif` - Resend last video without sound
+        | `/mp3` - Extract audio from last video
         | Captions keep your formatting: bold, italic, links, spoilers...
         |
         | Examples:
@@ -493,6 +497,50 @@ class MediaExtTelegramBot constructor(config: BotConfig) : TelegramLongPollingBo
                 downloadFile(execute(GetFile(video.fileId)), input)
                 ffmpegUtils.removeAudio(input, output)
                 sendAnimation(chatId, output, recentMedia.caption)
+            } finally {
+                FileUtils.deleteQuietly(input)
+                FileUtils.deleteQuietly(output)
+            }
+        }
+    }
+
+    private fun handleMp3Command(chatId: Long) {
+        val recentMedia = userRecentMedia[chatId.toString()]
+        val video = recentMedia?.fileIds?.firstOrNull { it.fileType == MediaType.Video }
+
+        if (recentMedia == null || video == null) {
+            sendMessage(chatId, "Recent video not found. First send a video, then use /mp3")
+            return
+        }
+
+        // status message is edited later, and Telegram can't edit messages with a reply keyboard
+        val message = sendMessage(chatId, "_Please, wait..._", markDown = true, keyboard = false)
+
+        runCommandAsync(chatId) {
+            val status = createStatusUpdater(chatId, message.messageId)
+            val input = File(tempDir, "${System.nanoTime()}.mp4")
+            val output = File(tempDir, "${System.nanoTime()}.mp3")
+
+            try {
+                status.update(DownloadStatus("Downloading video..."))
+                downloadFile(execute(GetFile(video.fileId)), input)
+
+                status.update(DownloadStatus("Extracting audio..."))
+                ffmpegUtils.extractAudio(input, output) { percent ->
+                    status.update(DownloadStatus("Extracting audio...", percent))
+                }
+
+                if (output.exists() && output.length() > 0) {
+                    val size = FileUtils.byteCountToDisplaySize(output.length())
+                    status.show("📤 *Uploading audio ($size)...*")
+                    sendAudio(chatId, output, recentMedia.caption)
+                    status.show("✅ *Done ($size)*")
+                } else {
+                    status.show("⛔*Audio not found* \uD83D\uDE1E")
+                }
+            } catch (e: Exception) {
+                status.show("⛔*Failed to extract audio*")
+                throw e
             } finally {
                 FileUtils.deleteQuietly(input)
                 FileUtils.deleteQuietly(output)
@@ -640,6 +688,37 @@ class MediaExtTelegramBot constructor(config: BotConfig) : TelegramLongPollingBo
                     ), caption = comment
                 )
             }
+        } catch (e: TelegramApiException) {
+            throw IllegalStateException("sendAudio failed: " + e.message, e)
+        }
+    }
+
+    private fun sendAudio(chatId: Long, file: File, comment: Caption, updateRecent: Boolean = true) {
+        sendAudio(chatId.toString(), file, comment, updateRecent)
+    }
+
+    private fun sendAudio(chatId: String, file: File, comment: Caption, updateRecent: Boolean) {
+        val audio = SendAudio()
+        audio.chatId = chatId
+        audio.audio = InputFile(file)
+
+        if (comment.isNotBlank()) {
+            audio.caption = comment.text
+            audio.captionEntities = comment.entitiesOrNull()
+        }
+
+        try {
+            log.info("Sending audio file: {}", audio)
+            val msg = execute(audio)
+            val mediaFile = MediaFile(
+                fileId = msg.audio.fileId,
+                fileType = MediaType.Audio
+            )
+
+            if (updateRecent) {
+                userRecentMedia[chatId] = UserRecentMedia(listOf(mediaFile), caption = comment)
+            }
+            mediaGroupDelayer.createNewGroup(chatId.toLong(), mediaFile)
         } catch (e: TelegramApiException) {
             throw IllegalStateException("sendAudio failed: " + e.message, e)
         }
@@ -1023,12 +1102,14 @@ class MediaExtTelegramBot constructor(config: BotConfig) : TelegramLongPollingBo
                 keyboardFirstRow.add("/help")
                 keyboardFirstRow.add("/edit")
                 keyboardFirstRow.add("/makegif")
+                keyboardFirstRow.add("/mp3")
                 keyboardFirstRow.add("/sendto")
             }
         } else {
             keyboardFirstRow.add("/help")
             keyboardFirstRow.add("/edit")
             keyboardFirstRow.add("/makegif")
+            keyboardFirstRow.add("/mp3")
         }
 
         keyboard.add(keyboardFirstRow)

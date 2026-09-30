@@ -35,6 +35,33 @@ class FfMpegUtils(private val ffMpegPath: String, private val ffProbePath: Strin
           //  .setAudioBitStreamFilter("aac")
             .done()
 
+        run(ffmpeg, ffprobe, builder, input, progress)
+    }
+
+    /**
+     * Extracts the audio track of [input] into an mp3 file.
+     *
+     * @param progress receives conversion progress in percents (0..100), called from ffmpeg's progress thread
+     */
+    fun extractAudio(input: File, output: File, progress: ((Float) -> Unit)? = null) {
+        val ffmpeg = FFmpeg(ffmpegPath.path)
+        val ffprobe = FFprobe(ffprobePath.path)
+
+        val builder = FFmpegBuilder()
+            .overrideOutputFiles(true)
+            .setInput(input.path)
+            .done()
+            .addOutput(output.path)
+            .setFormat("mp3")
+            .disableVideo()
+            .setAudioCodec("libmp3lame")
+            .setAudioBitRate(192_000)
+            .done()
+
+        run(ffmpeg, ffprobe, builder, input, progress)
+    }
+
+    private fun run(ffmpeg: FFmpeg, ffprobe: FFprobe, builder: FFmpegBuilder, input: File, progress: ((Float) -> Unit)?) {
         val executor = FFmpegExecutor(ffmpeg, ffprobe)
 
         val durationNs = if (progress != null) probeDurationNs(ffprobe, input) else 0L
