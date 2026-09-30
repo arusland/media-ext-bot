@@ -3,6 +3,7 @@ package io.arusland.youtube
 import io.arusland.util.FfMpegUtils
 import io.arusland.util.JsonUtils
 import io.arusland.util.isMp4
+import io.arusland.youtube.model.DownloadStatus
 import io.arusland.youtube.model.VideoInfo
 import io.arusland.youtube.model.YoutubeRequest
 import io.arusland.youtube.model.YoutubeResponse
@@ -21,14 +22,15 @@ import java.util.*
 class YoutubeHelper(private val tempDir: File, private val ffMpegUtils: FfMpegUtils) {
     fun isYoutubeUrl(url: URL): Boolean = url.toString().run { contains("youtube.com") || contains("youtu.be") }
 
-    fun downloadMediaFrom(url: URL): Pair<File, VideoInfo> {
+    fun downloadMediaFrom(url: URL, status: (DownloadStatus) -> Unit = {}): Pair<File, VideoInfo> {
+        status.invoke(DownloadStatus("Fetching video info..."))
         val info = getVideoInfo(url)
-        val file = downloadVideo(url)
+        val file = downloadVideo(url, status)
 
         return file to info
     }
 
-    fun downloadVideo(url: URL, status: (String) -> Unit = {}): File {
+    fun downloadVideo(url: URL, status: (DownloadStatus) -> Unit = {}): File {
         log.debug("Download video from {}...", url)
         val fileId = "${UUID.randomUUID()}.tmp"
         val directory = tempDir.absolutePath
@@ -36,8 +38,9 @@ class YoutubeHelper(private val tempDir: File, private val ffMpegUtils: FfMpegUt
         request.setOption("ignore-errors")
         request.setOption("output", fileId)
         request.setOption("retries", 10)
-        status.invoke("Downloading video...")
-        val resp = execute(request, null)
+        request.setOption("newline")
+        status.invoke(DownloadStatus("Downloading video..."))
+        val resp = execute(request, DownloadStatusCallback(status))
         val fileRaw = tempDir.listFiles()!!
             .firstOrNull { it.isFile && it.name.contains(fileId) } ?: File(tempDir, fileId)
 
@@ -51,15 +54,17 @@ class YoutubeHelper(private val tempDir: File, private val ffMpegUtils: FfMpegUt
         if (fileRaw.exists()) {
             if (fileRaw.isMp4()) {
                 log.debug("Video is already mp4, skip convert, file: {}, url: {}", fileRaw, url)
-                status.invoke("Downloaded video size: ${FileUtils.byteCountToDisplaySize(fileRaw.length())})}")
+                status.invoke(DownloadStatus("Downloaded video size: ${FileUtils.byteCountToDisplaySize(fileRaw.length())}"))
                 return fileRaw
             }
 
-            status.invoke("Converting video to mp4...")
+            status.invoke(DownloadStatus("Converting video to mp4..."))
 
             log.debug("Normalizing video {} from url {}...", fileRaw, url)
             val fileResult = File(tempDir, "${UUID.randomUUID()}.mp4")
-            ffMpegUtils.convert(fileRaw, fileResult, videoCodec = "libx264")
+            ffMpegUtils.convert(fileRaw, fileResult, videoCodec = "libx264") { percent ->
+                status.invoke(DownloadStatus("Converting video to mp4...", percent))
+            }
             FileUtils.deleteQuietly(fileRaw)
 
             log.debug(
@@ -68,7 +73,7 @@ class YoutubeHelper(private val tempDir: File, private val ffMpegUtils: FfMpegUt
                 url
             )
 
-            status.invoke("Converted video size: ${FileUtils.byteCountToDisplaySize(fileRaw.length())})}")
+            status.invoke(DownloadStatus("Converted video size: ${FileUtils.byteCountToDisplaySize(fileResult.length())}"))
 
             return fileResult
         }
@@ -134,6 +139,32 @@ class YoutubeHelper(private val tempDir: File, private val ffMpegUtils: FfMpegUt
         youtubeResponse = YoutubeResponse(command, options, directory, exitCode, elapsedTime, out, err)
 
         return youtubeResponse
+    }
+
+    /**
+     * Translates yt-dlp output events into [DownloadStatus] updates.
+     */
+    private class DownloadStatusCallback(private val status: (DownloadStatus) -> Unit) : DownloadProgressCallback {
+        private var parts = 0
+        private var stage = "Downloading video..."
+
+        override fun onProgressUpdate(progress: Float, etaInSeconds: Long) {
+            status.invoke(DownloadStatus(stage, progress, etaInSeconds.takeIf { it >= 0 }))
+        }
+
+        override fun onStage(stage: String) {
+            this.stage = when (stage) {
+                StreamProcessExtractor.STAGE_DOWNLOADING -> {
+                    parts++
+                    if (parts > 1) "Downloading video (part $parts)..." else "Downloading video..."
+                }
+                StreamProcessExtractor.STAGE_MERGING -> "Merging video and audio..."
+                StreamProcessExtractor.STAGE_EXTRACTING_AUDIO -> "Extracting audio..."
+                StreamProcessExtractor.STAGE_FIXING -> "Fixing up video..."
+                else -> return
+            }
+            status.invoke(DownloadStatus(this.stage))
+        }
     }
 
     private fun buildCommand(command: String): String {

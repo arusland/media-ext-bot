@@ -30,7 +30,7 @@ class EditLastCaptionCommand(userId: Long, bot: UserCommandApi)
     : UserCommand(userId, bot) {
     override fun execute(update: Update): Boolean {
         if (update.message.hasText()) {
-            val newCaption = update.message.text
+            val newCaption = Caption.ofText(update.message).trim()
 
             if (newCaption.isNotBlank()) {
                 bot.editLastCaption(userId, newCaption)
@@ -47,5 +47,5 @@ interface UserCommandApi {
 
     fun sendMessageTo(chatId: Long, message: String, markDown: Boolean = false, html: Boolean = false)
 
-    fun editLastCaption(userId: Long, newCaption: String)
+    fun editLastCaption(userId: Long, newCaption: Caption)
 }

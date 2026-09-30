@@ -13,13 +13,13 @@ class UserContext {
         lastMessageTime = Date()
     }
 
-    fun getLastComment(): String {
+    fun getLastComment(): Caption {
         val lastMessage = lastMessage
         if ((Date().time - lastMessageTime.time) < 1000 && lastMessage != null) {
-            return if (lastMessage.hasText()) lastMessage.text else lastMessage.caption ?: ""
+            return if (lastMessage.hasText()) Caption.ofText(lastMessage) else Caption.ofCaption(lastMessage)
         }
 
-        return ""
+        return Caption.EMPTY
     }
 
     companion object {

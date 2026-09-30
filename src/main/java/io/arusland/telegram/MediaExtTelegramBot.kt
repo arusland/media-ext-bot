@@ -101,15 +101,16 @@ class MediaExtTelegramBot constructor(config: BotConfig) : TelegramLongPollingBo
                     }
                 } else if (update.message.hasText()) {
                     val command = update.message.text.trim()
+                    val caption = Caption.ofText(update.message).trim()
 
                     if (command.startsWith("/")) {
                         val cmd = parseCommand(command)
                         val arg = parseArg(command)
                         handleCommand(cmd, arg, chatId, userId, isAdmin)
                     } else if (command.startsWith("http")) {
-                        handleUrl(command, chatId, userContext.getLastComment())
+                        handleUrl(command, caption, chatId, userContext.getLastComment())
                     } else {
-                        handlePlainText(command, chatId, userContext.getLastComment())
+                        handlePlainText(command, caption, chatId, userContext.getLastComment())
                     }
                 } else if (update.message.hasVideo()) {
                     mediaGroupDelayer.sendMediaDelayed(
@@ -187,16 +188,16 @@ class MediaExtTelegramBot constructor(config: BotConfig) : TelegramLongPollingBo
         }
     }
 
-    private fun handlePlainText(command: String, chatId: Long, lastComment: String) {
+    private fun handlePlainText(command: String, caption: Caption, chatId: Long, lastComment: Caption) {
         val mc = PATTERN_URL.matcher(command)
 
         if (mc.find()) {
             val url = mc.group(1)
 
-            handleUrl(url, chatId, lastComment)
+            handleUrl(url, Caption(url), chatId, lastComment)
         } else {
             sendMessage(chatId, command)
-            mediaGroupDelayer.setActualCaption(chatId, command)
+            mediaGroupDelayer.setActualCaption(chatId, caption)
         }
     }
 
@@ -244,10 +245,10 @@ class MediaExtTelegramBot constructor(config: BotConfig) : TelegramLongPollingBo
             .replace("_", "")
     }
 
-    private fun handleUrl(command: String, chatId: Long, lastComment: String) {
+    private fun handleUrl(command: String, caption: Caption, chatId: Long, lastComment: Caption) {
         try {
             val index = command.indexOf(' ')
-            val comment = if (index > 0) command.substring(index + 1) else lastComment
+            val comment = if (index > 0) caption.substring(index + 1) else lastComment
             val urlRaw = if (index > 0) command.substring(0, index) else command
             val url = URL(urlRaw)
 
@@ -266,31 +267,31 @@ class MediaExtTelegramBot constructor(config: BotConfig) : TelegramLongPollingBo
         }
     }
 
-    private fun tryDownloadVideoFromUrlAsync(url: URL, chatId: Long, comment: String, messageId: Int) {
+    private fun tryDownloadVideoFromUrlAsync(url: URL, chatId: Long, comment: Caption, messageId: Int) {
         runCommandAsync(chatId) {
             tryDownloadVideoFromUrl(url, comment, chatId, messageId)
         }
     }
 
-    private fun tryDownloadVideoFromUrl(url: URL, comment: String, chatId: Long, messageId: Int) {
+    private fun tryDownloadVideoFromUrl(url: URL, comment: Caption, chatId: Long, messageId: Int) {
         val status = createStatusUpdater(chatId, messageId)
         val file = youtubeHelper.downloadVideo(url, status::update)
 
         sendDownloadedVideo(chatId, file, comment, status)
     }
 
-    private fun handleYoutubeUrlAsync(url: URL, chatId: Long, comment: String, messageId: Int) {
+    private fun handleYoutubeUrlAsync(url: URL, chatId: Long, comment: Caption, messageId: Int) {
         runCommandAsync(chatId) {
             handleYoutubeUrl(url, comment, chatId, messageId)
         }
     }
 
-    private fun handleYoutubeUrl(url: URL, comment: String, chatId: Long, messageId: Int) {
+    private fun handleYoutubeUrl(url: URL, comment: Caption, chatId: Long, messageId: Int) {
         val status = createStatusUpdater(chatId, messageId)
         val media = youtubeHelper.downloadMediaFrom(url, status::update)
         val file = media.first
         val info = media.second
-        val finalComment = if (comment == "@" && !info.title.isNullOrEmpty()) info.title else comment
+        val finalComment = if (comment.text == "@" && !info.title.isNullOrEmpty()) Caption(info.title) else comment
 
         sendDownloadedVideo(chatId, file, finalComment, status)
     }
@@ -298,7 +299,7 @@ class MediaExtTelegramBot constructor(config: BotConfig) : TelegramLongPollingBo
     private fun createStatusUpdater(chatId: Long, messageId: Int) =
         StatusMessageUpdater { text -> editMessage(chatId, messageId, text, markDown = true) }
 
-    private fun sendDownloadedVideo(chatId: Long, file: File, comment: String, status: StatusMessageUpdater) {
+    private fun sendDownloadedVideo(chatId: Long, file: File, comment: Caption, status: StatusMessageUpdater) {
         if (file.exists()) {
             val size = FileUtils.byteCountToDisplaySize(file.length())
             status.show("📤 *Uploading video ($size)...*")
@@ -310,7 +311,7 @@ class MediaExtTelegramBot constructor(config: BotConfig) : TelegramLongPollingBo
         }
     }
 
-    private fun handleBinaryUrlAsync(url: URL, chatId: Long, comment: String) {
+    private fun handleBinaryUrlAsync(url: URL, chatId: Long, comment: Caption) {
         runCommandAsync(chatId) {
             val ext = FilenameUtils.getExtension(url.path)
             val file = loadBinaryFile(url, System.nanoTime().toString(), ext)
@@ -451,6 +452,7 @@ class MediaExtTelegramBot constructor(config: BotConfig) : TelegramLongPollingBo
         | `twitter_url My own caption` - Media from tweet with custom caption
         | `/edit` - Edit caption of last message
         | `/makegif` - Resend last video without sound
+        | Captions keep your formatting: bold, italic, links, spoilers...
         |
         | Examples:
         |   `https://twitter.com/ziggush/status/1086543849605001216`
@@ -498,7 +500,7 @@ class MediaExtTelegramBot constructor(config: BotConfig) : TelegramLongPollingBo
         }
     }
 
-    private fun sendFile(chatId: Long, file: File, comment: String) {
+    private fun sendFile(chatId: Long, file: File, comment: Caption) {
         log.debug("Sending file of size {}, file: {}", file.length(), file)
 
         if (file.isVideo()) {
@@ -510,17 +512,18 @@ class MediaExtTelegramBot constructor(config: BotConfig) : TelegramLongPollingBo
         }
     }
 
-    private fun sendDocument(chatId: Long, file: File, comment: String, updateRecent: Boolean = true) {
+    private fun sendDocument(chatId: Long, file: File, comment: Caption, updateRecent: Boolean = true) {
         sendDocument(chatId.toString(), file, comment, updateRecent)
     }
 
-    private fun sendDocument(chatId: String, file: File, comment: String, updateRecent: Boolean) {
+    private fun sendDocument(chatId: String, file: File, comment: Caption, updateRecent: Boolean) {
         val doc = SendDocument()
         doc.chatId = chatId
         doc.setDocument(InputFile(file))
 
         if (comment.isNotBlank()) {
-            doc.caption = comment
+            doc.caption = comment.text
+            doc.captionEntities = comment.entitiesOrNull()
         }
 
         try {
@@ -543,17 +546,18 @@ class MediaExtTelegramBot constructor(config: BotConfig) : TelegramLongPollingBo
         }
     }
 
-    private fun sendDocument(chatId: Long, fileId: String, comment: String, updateRecent: Boolean = true) {
+    private fun sendDocument(chatId: Long, fileId: String, comment: Caption, updateRecent: Boolean = true) {
         sendDocument(chatId.toString(), fileId, comment, updateRecent)
     }
 
-    private fun sendDocument(chatId: String, fileId: String, comment: String, updateRecent: Boolean) {
+    private fun sendDocument(chatId: String, fileId: String, comment: Caption, updateRecent: Boolean) {
         val doc = SendDocument()
         doc.chatId = chatId
         doc.setDocument(InputFile(fileId))
 
         if (comment.isNotBlank()) {
-            doc.caption = comment
+            doc.caption = comment.text
+            doc.captionEntities = comment.entitiesOrNull()
         }
 
         try {
@@ -575,17 +579,18 @@ class MediaExtTelegramBot constructor(config: BotConfig) : TelegramLongPollingBo
         }
     }
 
-    private fun sendVideo(chatId: Long, fileId: String, comment: String, updateRecent: Boolean = true) {
+    private fun sendVideo(chatId: Long, fileId: String, comment: Caption, updateRecent: Boolean = true) {
         sendVideo(chatId.toString(), fileId, comment, updateRecent)
     }
 
-    private fun sendVideo(chatId: String, fileId: String, comment: String, updateRecent: Boolean) {
+    private fun sendVideo(chatId: String, fileId: String, comment: Caption, updateRecent: Boolean) {
         val video = SendVideo()
         video.chatId = chatId
         video.video = InputFile(fileId)
 
         if (comment.isNotBlank()) {
-            video.caption = comment
+            video.caption = comment.text
+            video.captionEntities = comment.entitiesOrNull()
         }
 
         try {
@@ -607,17 +612,18 @@ class MediaExtTelegramBot constructor(config: BotConfig) : TelegramLongPollingBo
         }
     }
 
-    private fun sendAudio(chatId: Long, fileId: String, comment: String, updateRecent: Boolean = true) {
+    private fun sendAudio(chatId: Long, fileId: String, comment: Caption, updateRecent: Boolean = true) {
         sendAudio(chatId.toString(), fileId, comment, updateRecent)
     }
 
-    private fun sendAudio(chatId: String, fileId: String, comment: String, updateRecent: Boolean) {
+    private fun sendAudio(chatId: String, fileId: String, comment: Caption, updateRecent: Boolean) {
         val video = SendAudio()
         video.chatId = chatId
         video.audio = InputFile(fileId)
 
         if (comment.isNotBlank()) {
-            video.caption = comment
+            video.caption = comment.text
+            video.captionEntities = comment.entitiesOrNull()
         }
 
         try {
@@ -639,17 +645,18 @@ class MediaExtTelegramBot constructor(config: BotConfig) : TelegramLongPollingBo
         }
     }
 
-    private fun sendVideo(chatId: Long, file: File, comment: String, updateRecent: Boolean = true) {
+    private fun sendVideo(chatId: Long, file: File, comment: Caption, updateRecent: Boolean = true) {
         sendVideo(chatId.toString(), file, comment, updateRecent)
     }
 
-    private fun sendVideo(chatId: String, file: File, comment: String, updateRecent: Boolean) {
+    private fun sendVideo(chatId: String, file: File, comment: Caption, updateRecent: Boolean) {
         val video = SendVideo()
         video.chatId = chatId
         video.setVideo(InputFile(file))
 
         if (comment.isNotBlank()) {
-            video.caption = comment
+            video.caption = comment.text
+            video.captionEntities = comment.entitiesOrNull()
         }
 
         try {
@@ -671,17 +678,18 @@ class MediaExtTelegramBot constructor(config: BotConfig) : TelegramLongPollingBo
         }
     }
 
-    private fun sendAnimation(chatId: Long, fileId: String, comment: String, updateRecent: Boolean = true) {
+    private fun sendAnimation(chatId: Long, fileId: String, comment: Caption, updateRecent: Boolean = true) {
         sendAnimation(chatId.toString(), fileId, comment, updateRecent)
     }
 
-    private fun sendAnimation(chatId: String, fileId: String, comment: String, updateRecent: Boolean) {
+    private fun sendAnimation(chatId: String, fileId: String, comment: Caption, updateRecent: Boolean) {
         val animation = SendAnimation()
         animation.chatId = chatId
         animation.animation = InputFile(fileId)
 
         if (comment.isNotBlank()) {
-            animation.caption = comment
+            animation.caption = comment.text
+            animation.captionEntities = comment.entitiesOrNull()
         }
 
         try {
@@ -703,17 +711,18 @@ class MediaExtTelegramBot constructor(config: BotConfig) : TelegramLongPollingBo
         }
     }
 
-    private fun sendAnimation(chatId: Long, file: File, comment: String, updateRecent: Boolean = true) {
+    private fun sendAnimation(chatId: Long, file: File, comment: Caption, updateRecent: Boolean = true) {
         sendAnimation(chatId.toString(), file, comment, updateRecent)
     }
 
-    private fun sendAnimation(chatId: String, file: File, comment: String, updateRecent: Boolean) {
+    private fun sendAnimation(chatId: String, file: File, comment: Caption, updateRecent: Boolean) {
         val animation = SendAnimation()
         animation.chatId = chatId
         animation.animation = InputFile(file)
 
         if (comment.isNotBlank()) {
-            animation.caption = comment
+            animation.caption = comment.text
+            animation.captionEntities = comment.entitiesOrNull()
         }
 
         try {
@@ -735,11 +744,11 @@ class MediaExtTelegramBot constructor(config: BotConfig) : TelegramLongPollingBo
         }
     }
 
-    private fun sendMediasById(chatId: Long, filesIds: List<MediaFile>, comment: String, updateRecent: Boolean = true) {
+    private fun sendMediasById(chatId: Long, filesIds: List<MediaFile>, comment: Caption, updateRecent: Boolean = true) {
         sendMediasById(chatId.toString(), filesIds, comment, updateRecent)
     }
 
-    private fun sendMediasById(chatId: String, filesIds: List<MediaFile>, comment: String, updateRecent: Boolean) {
+    private fun sendMediasById(chatId: String, filesIds: List<MediaFile>, comment: Caption, updateRecent: Boolean) {
         if (filesIds.size == 1) {
             filesIds.first().let {
                 when (it.fileType) {
@@ -759,7 +768,8 @@ class MediaExtTelegramBot constructor(config: BotConfig) : TelegramLongPollingBo
         doc.medias = filesIds.map { imageId -> mapMedia(imageId) }
 
         if (comment.isNotBlank()) {
-            doc.medias.first().caption = comment
+            doc.medias.first().caption = comment.text
+            doc.medias.first().captionEntities = comment.entitiesOrNull()
         }
 
         try {
@@ -784,13 +794,14 @@ class MediaExtTelegramBot constructor(config: BotConfig) : TelegramLongPollingBo
         }
     }
 
-    private fun sendImageById(chatId: String, fileId: String, comment: String, updateRecent: Boolean) {
+    private fun sendImageById(chatId: String, fileId: String, comment: Caption, updateRecent: Boolean) {
         val doc = SendPhoto()
         doc.chatId = chatId
         doc.photo = InputFile(fileId)
 
         if (comment.isNotBlank()) {
-            doc.caption = comment
+            doc.caption = comment.text
+            doc.captionEntities = comment.entitiesOrNull()
         }
 
         try {
@@ -813,7 +824,7 @@ class MediaExtTelegramBot constructor(config: BotConfig) : TelegramLongPollingBo
     }
 
 
-    private fun sendImages(chatId: Long, files: List<File>, comment: String, updateRecent: Boolean = true) {
+    private fun sendImages(chatId: Long, files: List<File>, comment: Caption, updateRecent: Boolean = true) {
         if (files.size == 1) {
             sendImage(chatId, files.first(), comment)
             return
@@ -822,13 +833,14 @@ class MediaExtTelegramBot constructor(config: BotConfig) : TelegramLongPollingBo
         sendImages(chatId.toString(), files, comment, updateRecent)
     }
 
-    private fun sendImages(chatId: String, files: List<File>, comment: String, updateRecent: Boolean) {
+    private fun sendImages(chatId: String, files: List<File>, comment: Caption, updateRecent: Boolean) {
         val doc = SendMediaGroup()
         doc.chatId = chatId
         doc.medias = files.map { file -> InputMediaPhoto().apply { setMedia(file, file.name) } }
 
         if (comment.isNotBlank()) {
-            doc.medias.first().caption = comment
+            doc.medias.first().caption = comment.text
+            doc.medias.first().captionEntities = comment.entitiesOrNull()
         }
 
         try {
@@ -851,17 +863,18 @@ class MediaExtTelegramBot constructor(config: BotConfig) : TelegramLongPollingBo
         }
     }
 
-    private fun sendImage(chatId: Long, file: File, comment: String, updateRecent: Boolean = true) {
+    private fun sendImage(chatId: Long, file: File, comment: Caption, updateRecent: Boolean = true) {
         sendImage(chatId.toString(), file, comment, updateRecent)
     }
 
-    private fun sendImage(chatId: String, file: File, comment: String, updateRecent: Boolean) {
+    private fun sendImage(chatId: String, file: File, comment: Caption, updateRecent: Boolean) {
         val image = SendPhoto()
         image.chatId = chatId
         image.photo = InputFile(file)
 
         if (comment.isNotBlank()) {
-            image.caption = comment
+            image.caption = comment.text
+            image.captionEntities = comment.entitiesOrNull()
         }
 
         try {
@@ -930,7 +943,7 @@ class MediaExtTelegramBot constructor(config: BotConfig) : TelegramLongPollingBo
         sendMessage(chatId, message, markDown, html)
     }
 
-    override fun editLastCaption(userId: Long, newCaption: String) {
+    override fun editLastCaption(userId: Long, newCaption: Caption) {
         mediaGroupDelayer.resendWithNewCaption(userId, newCaption)
     }
 

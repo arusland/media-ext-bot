@@ -3,12 +3,12 @@ package io.arusland.telegram
 import java.time.Duration
 import java.time.LocalDateTime
 
-data class UserRecentMedia(val fileIds: List<MediaFile>, val caption: String)
+data class UserRecentMedia(val fileIds: List<MediaFile>, val caption: Caption)
 
 data class MediaGroup(
     val chatId: Long,
     val fileIds: List<MediaFile> = emptyList(),
-    val caption: String = "",
+    val caption: Caption = Caption.EMPTY,
     val updateTime: LocalDateTime = LocalDateTime.now(),
     val sent: Boolean = false
 ) {
@@ -19,9 +19,9 @@ data class MediaGroup(
 
     fun isEmpty(): Boolean = fileIds.isEmpty()
 
-    fun withNewMedia(mediaFile: MediaFile, comment: String): MediaGroup = copy(
+    fun withNewMedia(mediaFile: MediaFile, comment: Caption): MediaGroup = copy(
         fileIds = fileIds.toMutableList().apply { add(mediaFile) },
-        caption = caption.ifBlank { comment },
+        caption = if (caption.isBlank()) comment else caption,
         updateTime = LocalDateTime.now(),
         sent = false
     )
@@ -32,7 +32,7 @@ data class MediaGroup(
         sent = false
     )
 
-    fun withNewCaption(caption: String) = copy(
+    fun withNewCaption(caption: Caption) = copy(
         caption = caption,
         updateTime = LocalDateTime.now(),
         sent = false

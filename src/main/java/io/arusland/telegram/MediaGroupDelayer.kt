@@ -22,7 +22,7 @@ class MediaGroupDelayer(
     fun sendMediaDelayed(
         chatId: Long,
         mediaFile: MediaFile,
-        comment: String
+        comment: Caption
     ) {
         synchronized(lastMediaGroups) {
             val group = getActualGroup(chatId)
@@ -65,7 +65,7 @@ class MediaGroupDelayer(
         }
     }
 
-    fun setActualCaption(chatId: Long, caption: String) {
+    fun setActualCaption(chatId: Long, caption: Caption) {
         synchronized(lastMediaGroups) {
             lastMediaGroups[chatId] = getActualGroup(chatId).withNewCaption(caption)
         }
@@ -73,7 +73,7 @@ class MediaGroupDelayer(
         sendMediaDelayedAsync(chatId, delay)
     }
 
-    fun resendWithNewCaption(chatId: Long, caption: String) {
+    fun resendWithNewCaption(chatId: Long, caption: Caption) {
         if (lastMediaGroups.containsKey(chatId)) {
             synchronized(lastMediaGroups) {
                 lastMediaGroups[chatId] = getRecentGroup(chatId).withNewCaption(caption)
