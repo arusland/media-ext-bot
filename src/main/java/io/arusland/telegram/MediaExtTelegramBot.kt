@@ -8,6 +8,7 @@ import org.apache.commons.io.FilenameUtils
 import org.apache.commons.lang3.Validate
 import org.slf4j.LoggerFactory
 import org.telegram.telegrambots.bots.TelegramLongPollingBot
+import org.telegram.telegrambots.meta.api.methods.GetFile
 import org.telegram.telegrambots.meta.api.methods.send.*
 import org.telegram.telegrambots.meta.api.methods.updatingmessages.EditMessageText
 import org.telegram.telegrambots.meta.api.objects.InputFile
@@ -370,6 +371,8 @@ class MediaExtTelegramBot constructor(config: BotConfig) : TelegramLongPollingBo
             sendMessage(chatId, MESSAGE_PLEASE_SEND_TO)
         } else if ("edit" == command) {
             handleEditCommand(chatId, arg)
+        } else if ("makegif" == command) {
+            handleMakeGifCommand(chatId)
         } else if (isAdmin) {
             if ("kill" == command) {
                 sendMarkdownMessage(chatId, "*Bye bye*")
@@ -476,6 +479,7 @@ class MediaExtTelegramBot constructor(config: BotConfig) : TelegramLongPollingBo
         | `twitter_url @` - Media and caption from tweet
         | `twitter_url My own caption` - Media from tweet with custom caption
         | `/edit` - Edit caption of last message
+        | `/makegif` - Resend last video without sound
         |
         | Examples:
         |   `https://twitter.com/ziggush/status/1086543849605001216`
@@ -494,6 +498,32 @@ class MediaExtTelegramBot constructor(config: BotConfig) : TelegramLongPollingBo
             userCommands[chatId] = EditLastCaptionCommand(chatId, this)
         } else {
             sendMessage(chatId, "Recent media not found. First send media, then edit caption")
+        }
+    }
+
+    private fun handleMakeGifCommand(chatId: Long) {
+        val recentMedia = userRecentMedia[chatId.toString()]
+        val video = recentMedia?.fileIds?.firstOrNull { it.fileType == MediaType.Video }
+
+        if (recentMedia == null || video == null) {
+            sendMessage(chatId, "Recent video not found. First send a video, then use /makegif")
+            return
+        }
+
+        sendMarkdownMessage(chatId, "_Please, wait..._")
+
+        runCommandAsync(chatId) {
+            val input = File(tempDir, "${System.nanoTime()}.mp4")
+            val output = File(tempDir, "${System.nanoTime()}_nosound.mp4")
+
+            try {
+                downloadFile(execute(GetFile(video.fileId)), input)
+                ffmpegUtils.removeAudio(input, output)
+                sendAnimation(chatId, output, recentMedia.caption)
+            } finally {
+                FileUtils.deleteQuietly(input)
+                FileUtils.deleteQuietly(output)
+            }
         }
     }
 
@@ -697,6 +727,38 @@ class MediaExtTelegramBot constructor(config: BotConfig) : TelegramLongPollingBo
                     ), caption = comment
                 )
             }
+        } catch (e: TelegramApiException) {
+            throw IllegalStateException("sendAnimation failed: " + e.message, e)
+        }
+    }
+
+    private fun sendAnimation(chatId: Long, file: File, comment: String, updateRecent: Boolean = true) {
+        sendAnimation(chatId.toString(), file, comment, updateRecent)
+    }
+
+    private fun sendAnimation(chatId: String, file: File, comment: String, updateRecent: Boolean) {
+        val animation = SendAnimation()
+        animation.chatId = chatId
+        animation.animation = InputFile(file)
+
+        if (comment.isNotBlank()) {
+            animation.caption = comment
+        }
+
+        try {
+            log.info("Sending animation file: {}", animation)
+            val msg = execute(animation)
+            val mediaFile = MediaFile(
+                fileId = msg.animation.fileId,
+                fileType = MediaType.Animation
+            )
+
+            if (updateRecent) {
+                userRecentMedia[chatId] = UserRecentMedia(
+                    listOf(mediaFile), caption = comment
+                )
+            }
+            mediaGroupDelayer.createNewGroup(chatId.toLong(), mediaFile)
         } catch (e: TelegramApiException) {
             throw IllegalStateException("sendAnimation failed: " + e.message, e)
         }
@@ -968,11 +1030,13 @@ class MediaExtTelegramBot constructor(config: BotConfig) : TelegramLongPollingBo
             } else {
                 keyboardFirstRow.add("/help")
                 keyboardFirstRow.add("/edit")
+                keyboardFirstRow.add("/makegif")
                 keyboardFirstRow.add("/sendto")
             }
         } else {
             keyboardFirstRow.add("/help")
             keyboardFirstRow.add("/edit")
+            keyboardFirstRow.add("/makegif")
         }
 
         keyboard.add(keyboardFirstRow)

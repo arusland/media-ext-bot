@@ -29,4 +29,22 @@ class FfMpegUtils(private val ffMpegPath: String, private val ffProbePath: Strin
         // Run a one-pass encode
         executor.createJob(builder).run()
     }
+
+    fun removeAudio(input: File, output: File) {
+        val ffmpeg = FFmpeg(ffmpegPath.path)
+        val ffprobe = FFprobe(ffprobePath.path)
+
+        val builder = FFmpegBuilder()
+            .overrideOutputFiles(true)
+            .setInput(input.path)
+            .addOutput(output.path)
+            .setFormat("mp4")
+            .disableAudio()
+            .setVideoCodec("copy")
+            .done()
+
+        val executor = FFmpegExecutor(ffmpeg, ffprobe)
+
+        executor.createJob(builder).run()
+    }
 }
