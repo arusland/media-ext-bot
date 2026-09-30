@@ -1,6 +1,5 @@
 package io.arusland.telegram
 
-import io.arusland.twitter.TwitterHelper
 import io.arusland.util.*
 import io.arusland.youtube.YoutubeHelper
 import org.apache.commons.io.FileUtils
@@ -38,7 +37,6 @@ class MediaExtTelegramBot constructor(config: BotConfig) : TelegramLongPollingBo
     private val ffmpegUtils = FfMpegUtils(config.ffMpegPath, config.ffProbePath)
     private val tempDir = File("/tmp")
     private val youtubeHelper = YoutubeHelper(tempDir, ffmpegUtils)
-    private val twitterHelper: TwitterHelper = TwitterHelper(tempDir, ffmpegUtils, youtubeHelper)
     private val allowedUsers = mutableSetOf<Long>()
     private val bannedUsers = mutableSetOf<Long>()
     private val PROPS_DIR = File(System.getProperty("user.home"), ".media-ext")
@@ -316,12 +314,6 @@ class MediaExtTelegramBot constructor(config: BotConfig) : TelegramLongPollingBo
         }
     }
 
-    private fun handleTwitterUrlAsync(url: URL, chatId: Long, comment: String) {
-        runCommandAsync(chatId) {
-            handleTwitterUrl(url, comment, chatId)
-        }
-    }
-
     private fun runCommandAsync(chatId: Long, function: () -> Unit) {
         executor.submit {
             try {
@@ -335,32 +327,6 @@ class MediaExtTelegramBot constructor(config: BotConfig) : TelegramLongPollingBo
                     log.error(e.message, e)
                 }
             }
-        }
-    }
-
-    private fun handleTwitterUrl(url: URL, comment: String, chatId: Long) {
-        val media = twitterHelper.downloadMediaFrom(url)
-        val file = media.first
-        val info = media.second
-        val finalComment = if (comment == "@" && info.text.isNotEmpty() == true) info.text else comment
-
-        if (file != null) {
-            if (file.exists()) {
-                sendVideo(chatId, file, finalComment)
-                FileUtils.deleteQuietly(file)
-            } else {
-                sendMarkdownMessage(chatId, MESSAGE_MEDIA_NOT_FOUND)
-            }
-        } else if (info.imageUrls.isNotEmpty()) {
-            val files = info.imageUrls.mapIndexed { index, url ->
-                loadBinaryFile(URL(url), info.tweetId + index.toString(), "jpg")
-            }
-
-            sendImages(chatId, files, finalComment)
-
-            files.forEach { FileUtils.deleteQuietly(it) }
-        } else {
-            sendMarkdownMessage(chatId, MESSAGE_MEDIA_NOT_FOUND)
         }
     }
 
